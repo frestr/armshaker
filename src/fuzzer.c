@@ -19,15 +19,22 @@ void *insn_buffer;
 long page_size;
 bool last_insn_illegal;
 
+/* extern char resume; */
+
 void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
+    // Suppress unused warning
+    (void)sig_info;
+
     ucontext_t* uc = (ucontext_t*) uc_ptr;
 
     if (sig_num == SIGILL)
         last_insn_illegal = true;
 
+    /* printf("hello\n"); */
     // Jump to the next instruction (i.e. skip the illegal insn)
-    uc->uc_mcontext.pc = (long long unsigned int)(insn_buffer) + 4;
+    uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + 4;
+    /* uc->uc_mcontext.pc = (uintptr_t)&resume; */
 }
 
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
@@ -82,30 +89,32 @@ int main(void)
 
         // Update the first instruction in the instruction buffer
         *((uint32_t*)insn_buffer) = curr_insn;
+        /* *((uint32_t*)insn_buffer) = 0xd503201f; */
+
+        if (i % 0x1000 == 0)
+            printf("0x%08x: fuzzing...\n", curr_insn);
 
         last_insn_illegal = false;
         execute_insn_buffer();
 
-        if (i % 10000 == 0)
-            printf("%" PRIu64 "\n", i);
+        /* asm("br %[buffer]" : : [buffer] "r" (insn_buffer)); */
+        /* asm(".global resume\n\ */
+        /*      resume:"); */
 
         count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &insn);
 
-        // If count == 0 but last_insn_illegal == false: hidden instruction
-
         if (count > 0) {
-            size_t j;
-            for (j = 0; j < count; j++) {
-                if (i % 0x1000000 == 0) {
-                    printf("0x%08"PRIx64":\t%s\t\t%s\n", i, insn[j].mnemonic,
-                            insn[j].op_str);
+            if (last_insn_illegal) {
+                for (size_t j = 0; j < count; j++) {
+                    printf("0x%08x: Unavailable instruction (from EL0): %s\t\t%s\n",
+                           curr_insn, insn[j].mnemonic, insn[j].op_str);
                 }
             }
-
             cs_free(insn, count);
         } else {
-            if (i % 0x1000000 == 0)
-                printf("0x%08"PRIx64": ERROR\n", i);
+            if (!last_insn_illegal) {
+                /* printf("0x%08x: Hidden instruction!\n", curr_insn); */
+            }
         }
     }
     munmap(insn_buffer, page_size);
