@@ -13,23 +13,24 @@
 #define INSN_RANGE_START 0
 #define INSN_RANGE_END (1<<25)
 
+#define A64_RET 0xd65f03c0
+
 void *insn_buffer;
 long page_size;
+bool last_insn_illegal;
 
-void signal_handler(int sig_num, siginfo_t *sig_info, void *c_ptr)
+void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
-    ucontext_t* context = (ucontext_t*) c_ptr;
-    printf("%d, %d\n", sig_num, sig_num == SIGILL);
+    ucontext_t* uc = (ucontext_t*) uc_ptr;
 
-    // Ugly encoding of ret instruction...
-    ((uint8_t*)insn_buffer)[0] = 0xc0;
-    ((uint8_t*)insn_buffer)[1] = 0x03;
-    ((uint8_t*)insn_buffer)[2] = 0x5f;
-    ((uint8_t*)insn_buffer)[3] = 0xd6;
-    /* sleep(1); */
+    if (sig_num == SIGILL)
+        last_insn_illegal = true;
+
+    // Jump to the next instruction (i.e. skip the illegal insn)
+    uc->uc_mcontext.pc = (long long unsigned int)(insn_buffer) + 4;
 }
 
-void setup_signal_handler(void (*handler)(int, siginfo_t*, void*))
+void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
 {
     struct sigaction s;
 
@@ -57,6 +58,7 @@ int main(void)
 		return -1;
     }
 
+    init_signal_handler(signal_handler);
 
     page_size = sysconf(_SC_PAGE_SIZE);
 
@@ -64,35 +66,33 @@ int main(void)
     insn_buffer = mmap(NULL, page_size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (insn_buffer == MAP_FAILED) {
         perror("insn_buffer mmap failed");
-        return -1;
+        exit(-1);
     }
 
-    setup_signal_handler(signal_handler);
+    // Set the SECOND instruction to be a ret
+    *((uint32_t*)insn_buffer+1) = A64_RET;
 
-    /* uint8_t *code = calloc(4, sizeof(uint8_t)); */
-    uint8_t code[8] = {0, 0, 0, 0, 0xc0, 0x03, 0x5f, 0xd6};
+    // Jumps to the instruction buffer
+    void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
 
-    uint64_t errors = 0;
+    uint32_t curr_insn;
+
     for (uint64_t i = INSN_RANGE_START; i < INSN_RANGE_END; ++i) {
-        code[0] = i & 0xff;
-        code[1] = (i >>  8) & 0xff;
-        code[2] = (i >> 16) & 0xff;
-        code[3] = (i >> 24) & 0xff;
+        curr_insn = i & 0xffffffff;
 
-        ((uint8_t*)insn_buffer)[0] = code[0];
-        ((uint8_t*)insn_buffer)[1] = code[1];
-        ((uint8_t*)insn_buffer)[2] = code[2];
-        ((uint8_t*)insn_buffer)[3] = code[3];
+        // Update the first instruction in the instruction buffer
+        *((uint32_t*)insn_buffer) = curr_insn;
 
-        void (*f)() = (void(*)()) insn_buffer;
-        f();
+        last_insn_illegal = false;
+        execute_insn_buffer();
 
-        break;
-/*         asm("br %[insn_addr]" */
-/*             : */
-/*             : [insn_addr] "m" (code)); */
+        if (i % 10000 == 0)
+            printf("%" PRIu64 "\n", i);
 
-        count = cs_disasm(handle, code, sizeof(code), 0, 0, &insn);
+        count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &insn);
+
+        // If count == 0 but last_insn_illegal == false: hidden instruction
+
         if (count > 0) {
             size_t j;
             for (j = 0; j < count; j++) {
@@ -106,12 +106,8 @@ int main(void)
         } else {
             if (i % 0x1000000 == 0)
                 printf("0x%08"PRIx64": ERROR\n", i);
-            ++errors;
         }
     }
-    printf("Errors: 0x%" PRIx64 "\n", errors);
-
-    /* free(insn_buffer); */
     munmap(insn_buffer, page_size);
 
 	cs_close(&handle);
