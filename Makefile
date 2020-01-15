@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Og -g
+CFLAGS=-std=gnu11 -Wall -Wextra -Og -g
 LDLIBS=-lcapstone
 
 SRCS=$(wildcard src/*.c)
