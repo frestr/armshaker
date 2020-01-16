@@ -77,7 +77,7 @@ int main(void)
                 CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN,
                 &handle) != CS_ERR_OK) {
         fprintf(stderr, "ERROR: Unable to load capstone\n");
-		return -1;
+		return 1;
     }
 
     init_signal_handler(signal_handler);
@@ -94,7 +94,7 @@ int main(void)
 
     if (insn_buffer == MAP_FAILED) {
         perror("insn_buffer mmap failed");
-        return -1;
+        return 1;
     }
 
     // Set the SECOND instruction to be a ret
@@ -102,6 +102,14 @@ int main(void)
 
     // Jumps to the instruction buffer
     void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
+
+    // Clear/create log file
+    FILE *log_fp = fopen("log.txt", "w");
+    if (log_fp == NULL) {
+        fprintf(stderr, "Error opening logfile - will print to stdout instead.\n");
+    } else {
+        fclose(log_fp);
+    }
 
     uint32_t curr_insn;
     uint64_t instructions_checked = 0;
@@ -134,6 +142,7 @@ int main(void)
                    (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100,
                    (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec)
                 );
+
             fflush(stdout);
         }
 
@@ -168,20 +177,31 @@ int main(void)
             );
 
         // Jump to the instruction to be tested (and execute it)
-        if (i % 0x11111 != 0)
-            execute_insn_buffer();
+        execute_insn_buffer();
 
         if (!last_insn_illegal) {
+            log_fp = fopen("log.txt", "a");
+
+            if (log_fp == NULL) {
+                fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
+                printf("Hidden instruction found: 0x%08" PRIx32 "\n", curr_insn);
+            } else {
+                fprintf(log_fp, "Hidden instruction found: 0x%08" PRIx32 "\n", curr_insn);
+                fclose(log_fp);
+            }
+
             ++hidden_instructions_found;
-            /* printf("0x%08x: Hidden instruction!\n", curr_insn); */
         }
 
         ++instructions_checked;
     }
 
+    // Compensate for the status line not having a linebreak
+    printf("\n");
+
     munmap(insn_buffer, page_size);
 
-	cs_close(&handle);
+    cs_close(&handle);
 
     return 0;
 }
