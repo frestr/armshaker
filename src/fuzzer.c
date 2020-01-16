@@ -10,21 +10,27 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <malloc.h>
+#include <time.h>
 
 #include <capstone/capstone.h>
 
-// This is the "Reserved range", ref. p. 252
 #define INSN_RANGE_START 0
-#define INSN_RANGE_END (1<<25)
+#define INSN_RANGE_END 0x100000000 // 1<<32
+
+#define STATUSLINE_UPDATE_RATE 0x345
+
+/*
+ * Found by disassemblying every instruction in the instruction space
+ * and checking whether it is undefined or not.
+ *      TODO: Add an option to calculate this number
+ */
+#define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502
 
 #define A64_RET 0xd65f03c0
-#define A64_NOP 0xd503201f
 
 void *insn_buffer;
 long page_size;
 volatile sig_atomic_t last_insn_illegal = 0;
-
-extern char resume;
 
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
@@ -41,7 +47,6 @@ void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 
     // Jump to the next instruction (i.e. skip the illegal insn)
     uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + 4;
-    /* uc->uc_mcontext.pc = (uintptr_t)&resume; */
 }
 
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
@@ -54,6 +59,12 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
     sigfillset(&s.sa_mask);
 
     sigaction(SIGILL,  &s, NULL);
+}
+
+static uint64_t get_nano_timestamp(void) {
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
 int main(void)
@@ -83,7 +94,7 @@ int main(void)
 
     if (insn_buffer == MAP_FAILED) {
         perror("insn_buffer mmap failed");
-        exit(-1);
+        return -1;
     }
 
     // Set the SECOND instruction to be a ret
@@ -93,18 +104,49 @@ int main(void)
     void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
 
     uint32_t curr_insn;
+    uint64_t instructions_checked = 0;
+    uint32_t hidden_instructions_found = 0;
+
+    uint64_t last_time = get_nano_timestamp();
+    uint32_t instructions_per_sec = 0;
 
     for (uint64_t i = INSN_RANGE_START; i < INSN_RANGE_END; ++i) {
         curr_insn = i & 0xffffffff;
 
-        /* if (i % 0x11111 == 0) */
-        /*     curr_insn = A64_NOP; */
+        // Update the statusline every now and then
+        if (i % STATUSLINE_UPDATE_RATE == 0) {
+            if (i != 0) {
+                uint64_t curr_time = get_nano_timestamp();
+                instructions_per_sec = STATUSLINE_UPDATE_RATE / (double)((curr_time - last_time) / 1e9);
+                last_time = curr_time;
+            }
+
+            printf("\rinsn: 0x%08" PRIx32 ", "
+                   "checked: %" PRIu64 ", "
+                   "found: %" PRIu32 ", "
+                   "ips: %" PRIu32 ", "
+                   "prog: %.4f%%, "
+                   "eta: %.1fhrs   ",
+                   curr_insn,
+                   instructions_checked,
+                   hidden_instructions_found,
+                   instructions_per_sec,
+                   (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100,
+                   (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec)
+                );
+            fflush(stdout);
+        }
+
+        count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &insn);
+
+        // Only test instructions that the disassembler thinks are undefined
+        if (count > 0) {
+            cs_free(insn, count);
+            continue;
+        }
 
         // Update the first instruction in the instruction buffer
         *((uint32_t*)insn_buffer) = curr_insn;
-
-        if (i % 0x1000 == 0)
-            printf("0x%08x: fuzzing...\n", curr_insn);
 
         last_insn_illegal = 0;
 
@@ -116,38 +158,25 @@ int main(void)
          *      dsb sy   = memory barrier
          *      isb      = flush instruction pipeline
          */
-        asm volatile("\
-                dc civac, %[insn_buffer]    \n\
-                ic ivau, %[insn_buffer]     \n\
-                dsb sy                      \n\
-                isb                         \n\
-                "
+        asm volatile(
+                "dc civac, %[insn_buffer]    \n"
+                "ic ivau, %[insn_buffer]     \n"
+                "dsb sy                      \n"
+                "isb                         \n"
                 :
                 : [insn_buffer] "r" (insn_buffer)
             );
 
-        execute_insn_buffer();
+        // Jump to the instruction to be tested (and execute it)
+        if (i % 0x11111 != 0)
+            execute_insn_buffer();
 
-        count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &insn);
-
-        if (count > 0) {
-            if (last_insn_illegal) {
-                for (size_t j = 0; j < count; j++) {
-                    printf("0x%08x: Unavailable instruction (from EL0): %s\t\t%s\n",
-                           curr_insn, insn[j].mnemonic, insn[j].op_str);
-                }
-            } else {
-                for (size_t j = 0; j < count; j++) {
-                    printf("0x%08x: Legal instruction (%" PRIx64 "): %s\t\t%s\n",
-                           curr_insn, i, insn[j].mnemonic, insn[j].op_str);
-                }
-            }
-            cs_free(insn, count);
-        } else {
-            if (!last_insn_illegal) {
-                printf("0x%08x: Hidden instruction!\n", curr_insn);
-            }
+        if (!last_insn_illegal) {
+            ++hidden_instructions_found;
+            /* printf("0x%08x: Hidden instruction!\n", curr_insn); */
         }
+
+        ++instructions_checked;
     }
 
     munmap(insn_buffer, page_size);
