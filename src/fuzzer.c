@@ -12,6 +12,7 @@
 #include <malloc.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <string.h>
 
 #include <capstone/capstone.h>
 
@@ -33,6 +34,7 @@ volatile sig_atomic_t last_insn_illegal = 0;
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
 void print_help(char*);
+int objdump_disassemble(uint32_t, char*, size_t);
 
 void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
@@ -66,6 +68,63 @@ static uint64_t get_nano_timestamp(void) {
     return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
+int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
+{
+#define OBJDUMP_BUFFER_SIZE 1000
+#define OBJDUMP_STRING_SIZE 80
+
+    static char disas_buffer[OBJDUMP_BUFFER_SIZE][OBJDUMP_STRING_SIZE] = {0};
+    static uint32_t last_insn = 0;
+
+    if (last_insn != 0 && (insn - last_insn) < OBJDUMP_BUFFER_SIZE) {
+        // Retrieve diassembly from buffer
+        uint32_t offset = insn - last_insn;
+        assert(offset < OBJDUMP_BUFFER_SIZE);
+        strncpy(disas_str, disas_buffer[offset], disas_str_size > 80 ? 80 : disas_str_size);
+        return 0;
+    }
+
+    FILE *insn_fp = fopen("logs/insn_range", "wb");
+    if (insn_fp == NULL) {
+        fprintf(stderr, "Error opening insn_range.\n");
+        return 1;
+    }
+
+    for (uint64_t i = insn; i < insn + OBJDUMP_BUFFER_SIZE; ++i)
+        fwrite(&i, 4, 1, insn_fp);
+
+    fflush(insn_fp);
+
+    // Run objdump on the generated file, and prepare the output a little
+    FILE *disas_fp = popen("objdump -D -b binary -m aarch64 logs/insn_range"
+                           " | sed -e '1,7d'"
+                           " | cut -c17-", "r");
+
+    if (disas_fp == NULL) {
+        fprintf(stderr, "Failed to disassemble insn_range with objdump");
+        return 1;
+    }
+
+    // Read the output from objdump
+    char line[80] = {0};
+    for (uint32_t i = 0; i < OBJDUMP_BUFFER_SIZE; ++i) {
+        if (fgets(line, sizeof(line), disas_fp) == NULL) {
+            fprintf(stderr, "Error reading objdump output\n");
+            return 1;
+        }
+        line[strcspn(line, "\n")] = '\0'; // Remove the newline at the end
+        strncpy(disas_buffer[i], line, 80);
+    }
+
+    fclose(insn_fp);
+    fclose(disas_fp);
+
+    last_insn = insn;
+
+    strncpy(disas_str, disas_buffer[0], disas_str_size > 80 ? 80 : disas_str_size);
+    return 0;
+}
+
 void print_help(char *cmd_name)
 {
     printf("Usage: %s [option(s)]\n", cmd_name);
@@ -77,7 +136,6 @@ void print_help(char *cmd_name)
 
 int main(int argc, char **argv)
 {
-
     uint32_t insn_range_start = 0;
     uint32_t insn_range_end = 0xffffffff; // 2^32 - 1
 
@@ -114,8 +172,7 @@ int main(int argc, char **argv)
     }
 
 	csh handle;
-	cs_insn *insn;
-	size_t count;
+	cs_insn *capstone_insn;
 
 	if (cs_open(CS_ARCH_ARM64,
                 CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN,
@@ -165,7 +222,6 @@ int main(int argc, char **argv)
         fclose(log_fp);
     }
 
-    uint32_t curr_insn;
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
     uint32_t hidden_instructions_found = 0;
@@ -174,7 +230,7 @@ int main(int argc, char **argv)
     uint32_t instructions_per_sec = 0;
 
     for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
-        curr_insn = i & 0xffffffff;
+        uint32_t curr_insn = i & 0xffffffff;
 
         // Update the statusline every now and then
         if (i % STATUSLINE_UPDATE_RATE == 0 || i == insn_range_end) {
@@ -203,11 +259,57 @@ int main(int argc, char **argv)
             fflush(stdout);
         }
 
-        count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &insn);
 
-        // Only test instructions that the disassembler thinks are undefined
-        if (count > 0) {
-            cs_free(insn, count);
+        // Check if capstone thinks the instruction is undefined
+        size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
+
+
+        // Now check what objdump thinks
+        char objdump_str[80];
+        int objdump_ret = objdump_disassemble(curr_insn, objdump_str, 80);
+        if (objdump_ret != 0) {
+            fprintf(stderr, "objdump disassembly failed on insns 0x%08" PRIx32 "\n", curr_insn);
+            return 1;
+        }
+        bool objdump_undefined = strstr(objdump_str, "undefined") != NULL;
+
+        /* Only test instructions that both capstone and objdump think are
+         * undefined, but report inconsistencies, as they might indicate
+         * bugs in either of the disassemblers.
+         *
+         * The primary reason for this double check is that capstone incorrectly
+         * reports instructions defined in Arm ARM as CONSTRAINED UNPREDICTRABLE
+         * as errors, leading to lots of false positives.
+         *
+         * Objdump does not appear to make the same mistake, but might have
+         * other issues, so better use both. The performance loss is negligible
+         * because of the buffering in the objdump_disas function.
+         */
+        if (capstone_count > 0 || !objdump_undefined) {
+            // Write to log if one of the disassemblers thinks the instruction
+            // is undefined, but not the other one
+            if (capstone_count == 0 || objdump_undefined) {
+                char cs_str[256];
+                if (capstone_count > 0) {
+                    snprintf(cs_str, sizeof(cs_str), "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
+                } else {
+                    strcpy(cs_str, "error");
+                }
+
+                log_fp = fopen("logs/log.txt", "a");
+
+                if (log_fp == NULL) {
+                    fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
+                    printf("0x%08" PRIx32 ": cs/objdump inconsistency | cs[%s] / objdump[%s]\n", curr_insn, cs_str, objdump_str);
+                } else {
+                    fprintf(log_fp, "0x%08" PRIx32 ": cs/objdump inconsistency | cs[%s] / objdump[%s]\n", curr_insn, cs_str, objdump_str);
+                    fclose(log_fp);
+                }
+            }
+
+            if (capstone_count > 0)
+                cs_free(capstone_insn, capstone_count);
+
             ++instructions_skipped;
             continue;
         }
@@ -242,9 +344,9 @@ int main(int argc, char **argv)
 
             if (log_fp == NULL) {
                 fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
-                printf("Hidden instruction found: 0x%08" PRIx32 "\n", curr_insn);
+                printf("0x%08" PRIx32 ": Hidden instruction!\n", curr_insn);
             } else {
-                fprintf(log_fp, "Hidden instruction found: 0x%08" PRIx32 "\n", curr_insn);
+                fprintf(log_fp, "0x%08" PRIx32 ": Hidden instruction!\n", curr_insn);
                 fclose(log_fp);
             }
 
