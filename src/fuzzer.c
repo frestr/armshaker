@@ -11,13 +11,11 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #include <capstone/capstone.h>
 
-#define INSN_RANGE_START 0
-#define INSN_RANGE_END 0x100000000 // 1<<32
-
-#define STATUSLINE_UPDATE_RATE 0x345
+#define STATUSLINE_UPDATE_RATE 0x100
 
 /*
  * Found by disassemblying every instruction in the instruction space
@@ -34,6 +32,7 @@ volatile sig_atomic_t last_insn_illegal = 0;
 
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
+void print_help(char*);
 
 void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
@@ -67,8 +66,53 @@ static uint64_t get_nano_timestamp(void) {
     return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
-int main(void)
+void print_help(char *cmd_name)
 {
+    printf("Usage: %s [option(s)]\n", cmd_name);
+    printf("\nOptions:\n");
+    printf("\t-h\tPrint help information\n");
+    printf("\t-s\tStart of instruction search range (in hex) [default: 0x00000000]\n");
+    printf("\t-e\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
+}
+
+int main(int argc, char **argv)
+{
+
+    uint32_t insn_range_start = 0;
+    uint32_t insn_range_end = 0xffffffff; // 2^32 - 1
+
+    char *endptr;
+    int c;
+    while ((c = getopt(argc, argv, "hs:e:")) != -1) {
+        switch (c) {
+            case 'h':
+                print_help(argv[0]);
+                return 1;
+            case 's':
+                insn_range_start = strtol(optarg, &endptr, 16);
+                if (*endptr != '\0') {
+                    fprintf(stderr, "ERROR: Unable to read instruction range start\n");
+                    return 1;
+                }
+                break;
+            case 'e':
+                insn_range_end = strtol(optarg, &endptr, 16);
+                if (*endptr != '\0') {
+                    fprintf(stderr, "ERROR: Unable to read instruction range end\n");
+                    return 1;
+                }
+                break;
+            default:
+                print_help(argv[0]);
+                return 1;
+        }
+    }
+
+    if (insn_range_end < insn_range_start) {
+        fprintf(stderr, "ERROR: Instruction range start > instruction range end\n");
+        return 1;
+    }
+
 	csh handle;
 	cs_insn *insn;
 	size_t count;
@@ -103,8 +147,18 @@ int main(void)
     // Jumps to the instruction buffer
     void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
 
+    struct stat st = {0};
+
+    // Create log file directory
+    if (stat("logs", &st) == -1) {
+        if (mkdir("logs", 0755) == -1) {
+            perror("Unable to make logs directory");
+            return 1;
+        }
+    }
+
     // Clear/create log file
-    FILE *log_fp = fopen("log.txt", "w");
+    FILE *log_fp = fopen("logs/log.txt", "w");
     if (log_fp == NULL) {
         fprintf(stderr, "Error opening logfile - will print to stdout instead.\n");
     } else {
@@ -113,16 +167,17 @@ int main(void)
 
     uint32_t curr_insn;
     uint64_t instructions_checked = 0;
+    uint64_t instructions_skipped = 0;
     uint32_t hidden_instructions_found = 0;
 
     uint64_t last_time = get_nano_timestamp();
     uint32_t instructions_per_sec = 0;
 
-    for (uint64_t i = INSN_RANGE_START; i < INSN_RANGE_END; ++i) {
+    for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
         curr_insn = i & 0xffffffff;
 
         // Update the statusline every now and then
-        if (i % STATUSLINE_UPDATE_RATE == 0) {
+        if (i % STATUSLINE_UPDATE_RATE == 0 || i == insn_range_end) {
             if (i != 0) {
                 uint64_t curr_time = get_nano_timestamp();
                 instructions_per_sec = STATUSLINE_UPDATE_RATE / (double)((curr_time - last_time) / 1e9);
@@ -131,12 +186,14 @@ int main(void)
 
             printf("\rinsn: 0x%08" PRIx32 ", "
                    "checked: %" PRIu64 ", "
+                   "skipped: %" PRIu64 ", "
                    "found: %" PRIu32 ", "
                    "ips: %" PRIu32 ", "
                    "prog: %.4f%%, "
                    "eta: %.1fhrs   ",
                    curr_insn,
                    instructions_checked,
+                   instructions_skipped,
                    hidden_instructions_found,
                    instructions_per_sec,
                    (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100,
@@ -151,6 +208,7 @@ int main(void)
         // Only test instructions that the disassembler thinks are undefined
         if (count > 0) {
             cs_free(insn, count);
+            ++instructions_skipped;
             continue;
         }
 
@@ -180,7 +238,7 @@ int main(void)
         execute_insn_buffer();
 
         if (!last_insn_illegal) {
-            log_fp = fopen("log.txt", "a");
+            log_fp = fopen("logs/log.txt", "a");
 
             if (log_fp == NULL) {
                 fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
