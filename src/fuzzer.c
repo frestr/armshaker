@@ -16,7 +16,7 @@
 
 #include <capstone/capstone.h>
 
-#define STATUSLINE_UPDATE_RATE 0x100
+#define STATUSLINE_UPDATE_RATE 0x1000
 
 /*
  * Found by disassemblying every instruction in the instruction space
@@ -70,7 +70,7 @@ static uint64_t get_nano_timestamp(void) {
 
 int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
 {
-#define OBJDUMP_BUFFER_SIZE 1000
+#define OBJDUMP_BUFFER_SIZE 10000
 #define OBJDUMP_STRING_SIZE 80
 
     static char disas_buffer[OBJDUMP_BUFFER_SIZE][OBJDUMP_STRING_SIZE] = {0};
@@ -129,19 +129,21 @@ void print_help(char *cmd_name)
 {
     printf("Usage: %s [option(s)]\n", cmd_name);
     printf("\nOptions:\n");
-    printf("\t-h\tPrint help information\n");
-    printf("\t-s\tStart of instruction search range (in hex) [default: 0x00000000]\n");
-    printf("\t-e\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
+    printf("\t-h\t\tPrint help information\n");
+    printf("\t-s <insn>\tStart of instruction search range (in hex) [default: 0x00000000]\n");
+    printf("\t-e <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
+    printf("\t-t\t\tCalculate the total amount of undefined instructions, without executing them\n");
 }
 
 int main(int argc, char **argv)
 {
     uint32_t insn_range_start = 0;
     uint32_t insn_range_end = 0xffffffff; // 2^32 - 1
+    bool no_exec = false;
 
     char *endptr;
     int c;
-    while ((c = getopt(argc, argv, "hs:e:")) != -1) {
+    while ((c = getopt(argc, argv, "hs:e:t")) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -159,6 +161,9 @@ int main(int argc, char **argv)
                     fprintf(stderr, "ERROR: Unable to read instruction range end\n");
                     return 1;
                 }
+                break;
+            case 't':
+                no_exec = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -263,6 +268,7 @@ int main(int argc, char **argv)
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
 
+        bool capstone_undefined = (capstone_count == 0);
 
         // Now check what objdump thinks
         char objdump_str[80];
@@ -271,7 +277,19 @@ int main(int argc, char **argv)
             fprintf(stderr, "objdump disassembly failed on insns 0x%08" PRIx32 "\n", curr_insn);
             return 1;
         }
-        bool objdump_undefined = strstr(objdump_str, "undefined") != NULL;
+        bool objdump_undefined = (strstr(objdump_str, "undefined") != NULL);
+
+        // Just count the undefined instruction and continue if we're not
+        // going to execute it anyway (because of the no_exec flag)
+        if (no_exec) {
+            if (objdump_undefined && capstone_undefined)
+                ++instructions_checked;
+            else
+                ++instructions_skipped;
+            if (capstone_count > 0)
+                cs_free(capstone_insn, capstone_count);
+            continue;
+        }
 
         /* Only test instructions that both capstone and objdump think are
          * undefined, but report inconsistencies, as they might indicate
@@ -285,10 +303,10 @@ int main(int argc, char **argv)
          * other issues, so better use both. The performance loss is negligible
          * because of the buffering in the objdump_disas function.
          */
-        if (capstone_count > 0 || !objdump_undefined) {
+        if (!capstone_undefined || !objdump_undefined) {
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
-            if (capstone_count == 0 || objdump_undefined) {
+            if (capstone_undefined || objdump_undefined) {
                 char cs_str[256];
                 if (capstone_count > 0) {
                     snprintf(cs_str, sizeof(cs_str), "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
@@ -358,6 +376,9 @@ int main(int argc, char **argv)
 
     // Compensate for the status line not having a linebreak
     printf("\n");
+
+    if (no_exec)
+        printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, page_size);
 
