@@ -113,7 +113,7 @@ static int disas_sprintf(void *stream, const char *fmt, ...) {
     return 0;
 }
 
-int libopcode_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size) {
+int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size) {
     stream_state ss = {};
 
     // Set up the disassembler
@@ -288,16 +288,16 @@ int main(int argc, char **argv)
 
         bool capstone_undefined = (capstone_count == 0);
 
-        // Now check what libopcode thinks
-        char libopcode_str[80] = {0};
-        int libopcode_ret = libopcode_disassemble(curr_insn, libopcode_str, 80);
-        if (libopcode_ret != 0) {
-            fprintf(stderr, "libopcode disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
+        // Now check what libopcodes thinks
+        char libopcodes_str[80] = {0};
+        int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, 80);
+        if (libopcodes_ret != 0) {
+            fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
             return 1;
         }
 
-        bool libopcode_undefined = (strstr(libopcode_str, "undefined") != NULL
-                                 || strstr(libopcode_str, "NYI") != NULL);
+        bool libopcodes_undefined = (strstr(libopcodes_str, "undefined") != NULL
+                                 || strstr(libopcodes_str, "NYI") != NULL);
         /*
          * TODO: Also check for (constrained) unpredictable instructions.
          * Proper recovery after executing instructions with side effects
@@ -307,7 +307,7 @@ int main(int argc, char **argv)
         // Just count the undefined instruction and continue if we're not
         // going to execute it anyway (because of the no_exec flag)
         if (no_exec) {
-            if (libopcode_undefined && capstone_undefined)
+            if (libopcodes_undefined && capstone_undefined)
                 ++instructions_checked;
             else
                 ++instructions_skipped;
@@ -316,21 +316,21 @@ int main(int argc, char **argv)
             continue;
         }
 
-        /* Only test instructions that both capstone and libopcode think are
+        /* Only test instructions that both capstone and libopcodes think are
          * undefined, but report inconsistencies, as they might indicate
          * bugs in either of the disassemblers.
          *
          * The primary reason for this double check is that capstone apparently
          * generates a lot of false positives.
          *
-         * libopcode does not appear to make the same mistake, but might have
-         * other issues, so better use both. libopcode is a bit slower, but
+         * libopcodes does not appear to make the same mistake, but might have
+         * other issues, so better use both. libopcodes is a bit slower, but
          * actually executing the insns takes so long anyway.
          */
-        if (!capstone_undefined || !libopcode_undefined) {
+        if (!capstone_undefined || !libopcodes_undefined) {
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
-            if (capstone_undefined || libopcode_undefined) {
+            if (capstone_undefined || libopcodes_undefined) {
                 char cs_str[256];
                 if (capstone_count > 0) {
                     snprintf(cs_str, sizeof(cs_str), "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
@@ -342,9 +342,9 @@ int main(int argc, char **argv)
 
                 if (log_fp == NULL) {
                     fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
-                    printf("0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcode_str);
+                    printf("0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcodes_str);
                 } else {
-                    fprintf(log_fp, "0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcode_str);
+                    fprintf(log_fp, "0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcodes_str);
                     fclose(log_fp);
                 }
             }
