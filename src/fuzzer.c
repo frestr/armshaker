@@ -16,6 +16,10 @@
 
 #include <capstone/capstone.h>
 
+/* #define PACKAGE */
+/* #define PACKAGE_VERSION */
+/* #include <dis-asm.h> */
+
 #define STATUSLINE_UPDATE_RATE 0x1000
 
 /*
