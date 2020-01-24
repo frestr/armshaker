@@ -27,6 +27,9 @@
 
 #define A64_RET 0xd65f03c0
 
+#define INSN_RANGE_MIN 0x00000000
+#define INSN_RANGE_MAX 0xffffffff
+
 void *insn_buffer;
 long page_size;
 volatile sig_atomic_t last_insn_illegal = 0;
@@ -76,7 +79,9 @@ int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
     static char disas_buffer[OBJDUMP_BUFFER_SIZE][OBJDUMP_STRING_SIZE] = {0};
     static uint32_t last_insn = 0;
 
-    if (last_insn != 0 && (insn - last_insn) < OBJDUMP_BUFFER_SIZE) {
+    if (last_insn != 0
+            && insn >= last_insn
+            && (insn - last_insn) < OBJDUMP_BUFFER_SIZE) {
         // Retrieve diassembly from buffer
         uint32_t offset = insn - last_insn;
         assert(offset < OBJDUMP_BUFFER_SIZE);
@@ -90,15 +95,21 @@ int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
         return 1;
     }
 
-    for (uint64_t i = insn; i < insn + OBJDUMP_BUFFER_SIZE; ++i)
-        fwrite(&i, 4, 1, insn_fp);
+    uint32_t insns_written = 0;
+    // Fill the temp file with consecutive instructions
+    for (uint64_t i = insn; i < insn + OBJDUMP_BUFFER_SIZE; ++i) {
+        if (i <= INSN_RANGE_MAX) {
+            fwrite(&i, 4, 1, insn_fp);
+            ++insns_written;
+        }
+    }
 
     fflush(insn_fp);
 
     // Run objdump on the generated file, and prepare the output a little
-    FILE *disas_fp = popen("objdump -D -b binary -m aarch64 logs/insn_range"
-                           " | sed -e '1,7d'"
-                           " | cut -c17-", "r");
+    FILE *disas_fp = popen("/home/ubuntu/binutils-gdb/binutils/objdump -D -b binary -m aarch64 logs/insn_range"
+                           " | awk 'NR>7{$1=$2=\"\"; print}'"
+                           " | cut -c3-", "r");
 
     if (disas_fp == NULL) {
         fprintf(stderr, "Failed to disassemble insn_range with objdump");
@@ -107,7 +118,7 @@ int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
 
     // Read the output from objdump
     char line[80] = {0};
-    for (uint32_t i = 0; i < OBJDUMP_BUFFER_SIZE; ++i) {
+    for (uint32_t i = 0; i < insns_written; ++i) {
         if (fgets(line, sizeof(line), disas_fp) == NULL) {
             fprintf(stderr, "Error reading objdump output\n");
             return 1;
@@ -137,8 +148,8 @@ void print_help(char *cmd_name)
 
 int main(int argc, char **argv)
 {
-    uint32_t insn_range_start = 0;
-    uint32_t insn_range_end = 0xffffffff; // 2^32 - 1
+    uint32_t insn_range_start = INSN_RANGE_MIN;
+    uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
     bool no_exec = false;
 
     char *endptr;
