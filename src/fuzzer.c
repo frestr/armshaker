@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -16,17 +17,16 @@
 
 #include <capstone/capstone.h>
 
-/* #define PACKAGE */
-/* #define PACKAGE_VERSION */
-/* #include <dis-asm.h> */
-
-#define STATUSLINE_UPDATE_RATE 0x1000
-
 /*
- * Found by disassemblying every instruction in the instruction space
- * and checking whether it is undefined or not.
- *      TODO: Add an option to calculate this number
+ * Defines needed for bfd "bug":
+ * https://github.com/mlpack/mlpack/issues/574
  */
+#define PACKAGE
+#define PACKAGE_VERSION
+#include <dis-asm.h>
+
+#define STATUSLINE_UPDATE_RATE 0x10000
+
 #define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502
 
 #define A64_RET 0xd65f03c0
@@ -75,68 +75,71 @@ static uint64_t get_nano_timestamp(void) {
     return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
-int objdump_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size)
-{
-#define OBJDUMP_BUFFER_SIZE 10000
-#define OBJDUMP_STRING_SIZE 80
+typedef struct {
+  char *buffer;
+  bool reenter;
+} stream_state;
 
-    static char disas_buffer[OBJDUMP_BUFFER_SIZE][OBJDUMP_STRING_SIZE] = {0};
-    static uint32_t last_insn = 0;
+/*
+ * From
+ *  https://blog.yossarian.net/2019/05/18/Basic-disassembly-with-libopcodes
+ * Thanks
+ */
+static int disas_sprintf(void *stream, const char *fmt, ...) {
+    stream_state *ss = (stream_state *)stream;
 
-    if (last_insn != 0
-            && insn >= last_insn
-            && (insn - last_insn) < OBJDUMP_BUFFER_SIZE) {
-        // Retrieve diassembly from buffer
-        uint32_t offset = insn - last_insn;
-        assert(offset < OBJDUMP_BUFFER_SIZE);
-        strncpy(disas_str, disas_buffer[offset], disas_str_size > 80 ? 80 : disas_str_size);
-        return 0;
+    size_t n;
+    va_list arg;
+    va_start(arg, fmt);
+
+    if (!ss->reenter) {
+        n = vasprintf(&ss->buffer, fmt, arg);
+        ss->reenter = true;
+    } else {
+        char *tmp;
+        n = vasprintf(&tmp, fmt, arg);
+
+        char *tmp2;
+        n = asprintf(&tmp2, "%s%s", ss->buffer, tmp);
+        free(ss->buffer);
+        free(tmp);
+        ss->buffer = tmp2;
     }
+    va_end(arg);
 
-    FILE *insn_fp = fopen("logs/insn_range", "wb");
-    if (insn_fp == NULL) {
-        fprintf(stderr, "Error opening insn_range.\n");
-        return 1;
-    }
+    // ugh...
+    (void)n;
 
-    uint32_t insns_written = 0;
-    // Fill the temp file with consecutive instructions
-    for (uint64_t i = insn; i < insn + OBJDUMP_BUFFER_SIZE; ++i) {
-        if (i <= INSN_RANGE_MAX) {
-            fwrite(&i, 4, 1, insn_fp);
-            ++insns_written;
-        }
-    }
+    return 0;
+}
 
-    fflush(insn_fp);
+int libopcode_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size) {
+    stream_state ss = {};
 
-    // Run objdump on the generated file, and prepare the output a little
-    FILE *disas_fp = popen("/home/ubuntu/binutils-gdb/binutils/objdump -D -b binary -m aarch64 logs/insn_range"
-                           " | awk 'NR>7{$1=$2=\"\"; print}'"
-                           " | cut -c3-", "r");
+    // Set up the disassembler
+    disassemble_info disasm_info = {};
+    init_disassemble_info(&disasm_info, &ss, (fprintf_ftype) disas_sprintf);
+    disasm_info.arch = bfd_arch_aarch64;
+    disasm_info.mach = bfd_mach_aarch64;
+    disasm_info.read_memory_func = buffer_read_memory;
+    disasm_info.buffer = (uint8_t*)&insn;
+    disasm_info.buffer_vma = 0;
+    disasm_info.buffer_length = 4;
+    disassemble_init_for_target(&disasm_info);
 
-    if (disas_fp == NULL) {
-        fprintf(stderr, "Failed to disassemble insn_range with objdump");
-        return 1;
-    }
+    disassembler_ftype disasm;
+    disasm = disassembler(bfd_arch_aarch64, false, bfd_mach_aarch64, NULL);
 
-    // Read the output from objdump
-    char line[80] = {0};
-    for (uint32_t i = 0; i < insns_written; ++i) {
-        if (fgets(line, sizeof(line), disas_fp) == NULL) {
-            fprintf(stderr, "Error reading objdump output\n");
-            return 1;
-        }
-        line[strcspn(line, "\n")] = '\0'; // Remove the newline at the end
-        strncpy(disas_buffer[i], line, 80);
-    }
+    // Actually do the disassembly
+    size_t insn_size = disasm(0, &disasm_info);
+    assert(insn_size == 4);
 
-    fclose(insn_fp);
-    fclose(disas_fp);
+    // Store the resulting stsring
+    snprintf(disas_str, disas_str_size, "%s", ss.buffer);
 
-    last_insn = insn;
+    ss.reenter = false;
+    free(ss.buffer);
 
-    strncpy(disas_str, disas_buffer[0], disas_str_size > 80 ? 80 : disas_str_size);
     return 0;
 }
 
@@ -285,19 +288,26 @@ int main(int argc, char **argv)
 
         bool capstone_undefined = (capstone_count == 0);
 
-        // Now check what objdump thinks
-        char objdump_str[80];
-        int objdump_ret = objdump_disassemble(curr_insn, objdump_str, 80);
-        if (objdump_ret != 0) {
-            fprintf(stderr, "objdump disassembly failed on insns 0x%08" PRIx32 "\n", curr_insn);
+        // Now check what libopcode thinks
+        char libopcode_str[80] = {0};
+        int libopcode_ret = libopcode_disassemble(curr_insn, libopcode_str, 80);
+        if (libopcode_ret != 0) {
+            fprintf(stderr, "libopcode disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
             return 1;
         }
-        bool objdump_undefined = (strstr(objdump_str, "undefined") != NULL);
+
+        bool libopcode_undefined = (strstr(libopcode_str, "undefined") != NULL
+                                 || strstr(libopcode_str, "NYI") != NULL);
+        /*
+         * TODO: Also check for (constrained) unpredictable instructions.
+         * Proper recovery after executing instructions with side effects
+         * need to be in place first though.
+         */
 
         // Just count the undefined instruction and continue if we're not
         // going to execute it anyway (because of the no_exec flag)
         if (no_exec) {
-            if (objdump_undefined && capstone_undefined)
+            if (libopcode_undefined && capstone_undefined)
                 ++instructions_checked;
             else
                 ++instructions_skipped;
@@ -306,22 +316,21 @@ int main(int argc, char **argv)
             continue;
         }
 
-        /* Only test instructions that both capstone and objdump think are
+        /* Only test instructions that both capstone and libopcode think are
          * undefined, but report inconsistencies, as they might indicate
          * bugs in either of the disassemblers.
          *
-         * The primary reason for this double check is that capstone incorrectly
-         * reports instructions defined in Arm ARM as CONSTRAINED UNPREDICTRABLE
-         * as errors, leading to lots of false positives.
+         * The primary reason for this double check is that capstone apparently
+         * generates a lot of false positives.
          *
-         * Objdump does not appear to make the same mistake, but might have
-         * other issues, so better use both. The performance loss is negligible
-         * because of the buffering in the objdump_disas function.
+         * libopcode does not appear to make the same mistake, but might have
+         * other issues, so better use both. libopcode is a bit slower, but
+         * actually executing the insns takes so long anyway.
          */
-        if (!capstone_undefined || !objdump_undefined) {
+        if (!capstone_undefined || !libopcode_undefined) {
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
-            if (capstone_undefined || objdump_undefined) {
+            if (capstone_undefined || libopcode_undefined) {
                 char cs_str[256];
                 if (capstone_count > 0) {
                     snprintf(cs_str, sizeof(cs_str), "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
@@ -333,9 +342,9 @@ int main(int argc, char **argv)
 
                 if (log_fp == NULL) {
                     fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
-                    printf("0x%08" PRIx32 ": cs/objdump inconsistency | cs[%s] / objdump[%s]\n", curr_insn, cs_str, objdump_str);
+                    printf("0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcode_str);
                 } else {
-                    fprintf(log_fp, "0x%08" PRIx32 ": cs/objdump inconsistency | cs[%s] / objdump[%s]\n", curr_insn, cs_str, objdump_str);
+                    fprintf(log_fp, "0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcode_str);
                     fclose(log_fp);
                 }
             }
