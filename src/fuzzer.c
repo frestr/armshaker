@@ -25,9 +25,13 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUSLINE_UPDATE_RATE 0x10000
+#define STATUSLINE_UPDATE_RATE 0x200
 
-#define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502
+// According to capstone+libopcodes (constrained unpredictable excluded)
+#define UNDEFINED_INSTRUCTIONS_TOTAL 2757385481
+
+// According to capstone
+/* #define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502 */
 
 #define A64_RET 0xd65f03c0
 
@@ -263,10 +267,17 @@ int main(int argc, char **argv)
                 last_time = curr_time;
             }
 
+            double progress =  (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100;
+
+            // The x1.05 is to compensate for the time it takes to disassemble
+            // instructions (without executing them). A bit ugly, but works
+            // for now.
+            double eta = (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec) * 1.05;
+
             printf("\rinsn: 0x%08" PRIx32 ", "
                    "checked: %" PRIu64 ", "
                    "skipped: %" PRIu64 ", "
-                   "found: %" PRIu32 ", "
+                   "hidden: %" PRIu32 ", "
                    "ips: %" PRIu32 ", "
                    "prog: %.4f%%, "
                    "eta: %.1fhrs   ",
@@ -275,8 +286,8 @@ int main(int argc, char **argv)
                    instructions_skipped,
                    hidden_instructions_found,
                    instructions_per_sec,
-                   (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100,
-                   (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec)
+                   progress,
+                   eta
                 );
 
             fflush(stdout);
