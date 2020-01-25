@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-std=gnu11 -Wall -Wextra -O3
-LDLIBS=-lcapstone -lbfd -lopcodes
+LDLIBS=-lcapstone -lopcodes
 
 SRCS=$(wildcard src/*.c)
 OBJS=$(notdir $(SRCS:.c=.o))
