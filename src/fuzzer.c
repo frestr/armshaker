@@ -33,8 +33,6 @@
 // According to capstone
 /* #define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502 */
 
-#define A64_RET 0xd65f03c0
-
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
 
@@ -46,8 +44,12 @@ uint32_t insn_offset = 0;
 
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
+void execution_boilerplate(void);
+uint64_t get_nano_timestamp(void);
+int disas_sprintf(void*, const char*, ...);
+int libopcodes_disassemble(uint32_t, char*, size_t);
+void print_statusline(uint32_t, uint64_t, uint64_t, uint64_t);
 void print_help(char*);
-int objdump_disassemble(uint32_t, char*, size_t);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
 
@@ -83,7 +85,7 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
  * Used to prevent instructions with side-effects to corrupt the program
  * state, in addition to saving register values for analysis.
  */
-void execution_boilerplate()
+void execution_boilerplate(void)
 {
     asm volatile(
             ".global boilerplate_start  \n"
@@ -171,7 +173,7 @@ void execution_boilerplate()
             );
 }
 
-static uint64_t get_nano_timestamp(void) {
+uint64_t get_nano_timestamp(void) {
     struct timespec ts;
     timespec_get(&ts, TIME_UTC);
     return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
@@ -187,7 +189,7 @@ typedef struct {
  *  https://blog.yossarian.net/2019/05/18/Basic-disassembly-with-libopcodes
  * Thanks
  */
-static int disas_sprintf(void *stream, const char *fmt, ...) {
+int disas_sprintf(void *stream, const char *fmt, ...) {
     stream_state *ss = (stream_state *)stream;
 
     size_t n;
@@ -243,6 +245,45 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     free(ss.buffer);
 
     return 0;
+}
+
+void print_statusline(uint32_t curr_insn, uint64_t instructions_checked, uint64_t instructions_skipped, uint64_t hidden_instructions_found)
+{
+    uint32_t instructions_per_sec = 0;
+    static uint64_t last_time = 0;
+
+    if (last_time == 0) {
+        last_time = get_nano_timestamp();
+    } else {
+        uint64_t curr_time = get_nano_timestamp();
+        instructions_per_sec = STATUSLINE_UPDATE_RATE / (double)((curr_time - last_time) / 1e9);
+        last_time = curr_time;
+    }
+
+    double progress =  (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100;
+
+    // The x1.05 is to compensate for the time it takes to disassemble
+    // instructions (without executing them). A bit ugly, but works
+    // for now.
+    double eta = (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec) * 1.05;
+
+    printf("\rinsn: 0x%08" PRIx32 ", "
+           "checked: %" PRIu64 ", "
+           "skipped: %" PRIu64 ", "
+           "hidden: %" PRIu64 ", "
+           "ips: %" PRIu32 ", "
+           "prog: %.4f%%, "
+           "eta: %.1fhrs   ",
+           curr_insn,
+           instructions_checked,
+           instructions_skipped,
+           hidden_instructions_found,
+           instructions_per_sec,
+           progress,
+           eta
+        );
+
+    fflush(stdout);
 }
 
 void print_help(char *cmd_name)
@@ -381,48 +422,18 @@ int main(int argc, char **argv)
 
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
-    uint32_t hidden_instructions_found = 0;
-
-    uint64_t last_time = get_nano_timestamp();
-    uint32_t instructions_per_sec = 0;
+    uint64_t hidden_instructions_found = 0;
+    uint32_t curr_insn = 0;
 
     for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
         uint32_t curr_insn = i & 0xffffffff;
 
-        // Update the statusline every now and then
         if (i % STATUSLINE_UPDATE_RATE == 0 || i == insn_range_end) {
-            if (i != 0) {
-                uint64_t curr_time = get_nano_timestamp();
-                instructions_per_sec = STATUSLINE_UPDATE_RATE / (double)((curr_time - last_time) / 1e9);
-                last_time = curr_time;
-            }
-
-            double progress =  (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100;
-
-            // The x1.05 is to compensate for the time it takes to disassemble
-            // instructions (without executing them). A bit ugly, but works
-            // for now.
-            double eta = (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec) * 1.05;
-
-            printf("\rinsn: 0x%08" PRIx32 ", "
-                   "checked: %" PRIu64 ", "
-                   "skipped: %" PRIu64 ", "
-                   "hidden: %" PRIu32 ", "
-                   "ips: %" PRIu32 ", "
-                   "prog: %.4f%%, "
-                   "eta: %.1fhrs   ",
-                   curr_insn,
-                   instructions_checked,
-                   instructions_skipped,
-                   hidden_instructions_found,
-                   instructions_per_sec,
-                   progress,
-                   eta
-                );
-
-            fflush(stdout);
+            print_statusline(curr_insn,
+                             instructions_checked,
+                             instructions_skipped,
+                             hidden_instructions_found);
         }
-
 
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
@@ -541,7 +552,13 @@ int main(int argc, char **argv)
         ++instructions_checked;
     }
 
-    // Compensate for the status line not having a linebreak
+    // Print the statusline one last time to capture the result of the last insn
+    print_statusline(curr_insn,
+                     instructions_checked,
+                     instructions_skipped,
+                     hidden_instructions_found);
+
+    // Compensate for the statusline not having a linebreak
     printf("\n");
 
     if (no_exec)
