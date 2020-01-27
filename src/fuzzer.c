@@ -80,7 +80,7 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
 }
 
 /*
- * State management when executing illegal instructions.
+ * State management when testing instructions.
  *
  * Used to prevent instructions with side-effects to corrupt the program
  * state, in addition to saving register values for analysis.
@@ -306,7 +306,7 @@ int main(int argc, char **argv)
 
     char *endptr;
     int c;
-    while ((c = getopt(argc, argv, "hs:e:t:d")) != -1) {
+    while ((c = getopt(argc, argv, "hs:e:td")) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
