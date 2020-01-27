@@ -39,13 +39,17 @@
 #define INSN_RANGE_MAX 0xffffffff
 
 void *insn_buffer;
+void *null_pages;
 long page_size;
 volatile sig_atomic_t last_insn_illegal = 0;
+uint32_t insn_offset = 0;
 
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
 void print_help(char*);
 int objdump_disassemble(uint32_t, char*, size_t);
+
+extern char boilerplate_start, boilerplate_end, insn_location;
 
 void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
@@ -58,7 +62,7 @@ void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
         last_insn_illegal = 1;
 
     // Jump to the next instruction (i.e. skip the illegal insn)
-    uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + 4;
+    uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
 }
 
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
@@ -71,6 +75,100 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
     sigfillset(&s.sa_mask);
 
     sigaction(SIGILL,  &s, NULL);
+}
+
+/*
+ * State management when executing illegal instructions.
+ *
+ * Used to prevent instructions with side-effects to corrupt the program
+ * state, in addition to saving register values for analysis.
+ */
+void execution_boilerplate()
+{
+    asm volatile(
+            ".global boilerplate_start  \n"
+            "boilerplate_start:         \n"
+
+            // Store all gregs
+            "stp x0, x1, [sp, #-16]!    \n"
+            "stp x2, x3, [sp, #-16]!    \n"
+            "stp x4, x5, [sp, #-16]!    \n"
+            "stp x6, x7, [sp, #-16]!    \n"
+            "stp x8, x9, [sp, #-16]!    \n"
+            "stp x10, x11, [sp, #-16]!  \n"
+            "stp x12, x13, [sp, #-16]!  \n"
+            "stp x14, x15, [sp, #-16]!  \n"
+            "stp x16, x17, [sp, #-16]!  \n"
+            "stp x18, x19, [sp, #-16]!  \n"
+            "stp x20, x21, [sp, #-16]!  \n"
+            "stp x22, x23, [sp, #-16]!  \n"
+            "stp x24, x25, [sp, #-16]!  \n"
+            "stp x26, x27, [sp, #-16]!  \n"
+            "stp x28, x29, [sp, #-16]!  \n"
+            "stp x30, xzr, [sp, #-16]!  \n"
+
+            // Reset the regs to make insn execution deterministic
+            // and avoid program corruption
+            "mov x0, #0                 \n"
+            "mov x1, #0                 \n"
+            "mov x2, #0                 \n"
+            "mov x3, #0                 \n"
+            "mov x4, #0                 \n"
+            "mov x5, #0                 \n"
+            "mov x6, #0                 \n"
+            "mov x7, #0                 \n"
+            "mov x8, #0                 \n"
+            "mov x9, #0                 \n"
+            "mov x10, #0                \n"
+            "mov x11, #0                \n"
+            "mov x12, #0                \n"
+            "mov x13, #0                \n"
+            "mov x14, #0                \n"
+            "mov x15, #0                \n"
+            "mov x16, #0                \n"
+            "mov x17, #0                \n"
+            "mov x18, #0                \n"
+            "mov x19, #0                \n"
+            "mov x20, #0                \n"
+            "mov x21, #0                \n"
+            "mov x22, #0                \n"
+            "mov x23, #0                \n"
+            "mov x24, #0                \n"
+            "mov x25, #0                \n"
+            "mov x26, #0                \n"
+            "mov x27, #0                \n"
+            "mov x28, #0                \n"
+            "mov x29, #0                \n"
+            "mov x30, #0                \n"
+
+            ".global insn_location      \n"
+            "insn_location:             \n"
+
+            // This instruction will be replaced with the one to be tested
+            "nop                        \n"
+
+            // Restore all gregs
+            "ldp x30, xzr, [sp], #16    \n"
+            "ldp x28, x29, [sp], #16    \n"
+            "ldp x26, x27, [sp], #16    \n"
+            "ldp x24, x25, [sp], #16    \n"
+            "ldp x22, x23, [sp], #16    \n"
+            "ldp x20, x21, [sp], #16    \n"
+            "ldp x18, x19, [sp], #16    \n"
+            "ldp x16, x17, [sp], #16    \n"
+            "ldp x14, x15, [sp], #16    \n"
+            "ldp x12, x13, [sp], #16    \n"
+            "ldp x10, x11, [sp], #16    \n"
+            "ldp x8, x9, [sp], #16      \n"
+            "ldp x6, x7, [sp], #16      \n"
+            "ldp x4, x5, [sp], #16      \n"
+            "ldp x2, x3, [sp], #16      \n"
+            "ldp x0, x1, [sp], #16      \n"
+
+            "ret                        \n"
+            ".global boilerplate_end    \n"
+            "boilerplate_end:           \n"
+            );
 }
 
 static uint64_t get_nano_timestamp(void) {
@@ -155,6 +253,7 @@ void print_help(char *cmd_name)
     printf("\t-s <insn>\tStart of instruction search range (in hex) [default: 0x00000000]\n");
     printf("\t-e <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
     printf("\t-t\t\tCalculate the total amount of undefined instructions, without executing them\n");
+    printf("\t-d\t\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
 }
 
 int main(int argc, char **argv)
@@ -162,10 +261,11 @@ int main(int argc, char **argv)
     uint32_t insn_range_start = INSN_RANGE_MIN;
     uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
     bool no_exec = false;
+    bool allocate_null_pages = true;
 
     char *endptr;
     int c;
-    while ((c = getopt(argc, argv, "hs:e:t")) != -1) {
+    while ((c = getopt(argc, argv, "hs:e:t:d")) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -186,6 +286,9 @@ int main(int argc, char **argv)
                 break;
             case 't':
                 no_exec = true;
+                break;
+            case 'd':
+                allocate_null_pages = false;
                 break;
             default:
                 print_help(argv[0]);
@@ -225,11 +328,38 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Set the SECOND instruction to be a ret
-    *((uint32_t*)insn_buffer+1) = A64_RET;
+    uint32_t boilerplate_length = (&boilerplate_end - &boilerplate_start) / 4;
+
+    // Load the boilerplate assembly
+    for (uint32_t i = 0; i < boilerplate_length; ++i)
+        ((uint32_t*)insn_buffer)[i] = ((uint32_t*)&boilerplate_start)[i];
+
+    insn_offset = (&insn_location - &boilerplate_start) / 4;
 
     // Jumps to the instruction buffer
     void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
+
+    if (allocate_null_pages) {
+        /*
+         * Allocate a few pages starting at address 0.
+         * This is to prevent segfaults when running insns like [x0] when x0 is 0.
+         *
+         * If I read Arm ARM correctly, the max offset for register loads are
+         * 12 bits, so one page (4096 bytes) should be enough, but oh well.
+         */
+        null_pages = mmap(0,
+                          page_size * 16,
+                          PROT_READ | PROT_WRITE,
+                          MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+                          -1,
+                          0);
+
+        if (null_pages == MAP_FAILED) {
+            perror("null_pages mmap failed (no root?)");
+            printf("If you really want to run without allocating null pages, run with -d\n");
+            return 1;
+        }
+    }
 
     struct stat st = {0};
 
@@ -353,9 +483,9 @@ int main(int argc, char **argv)
 
                 if (log_fp == NULL) {
                     fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
-                    printf("0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcodes_str);
+                    printf("0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
                 } else {
-                    fprintf(log_fp, "0x%08" PRIx32 ": cs/libopc inconsistency | cs[%s] / libopc[%s]\n", curr_insn, cs_str, libopcodes_str);
+                    fprintf(log_fp, "0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
                     fclose(log_fp);
                 }
             }
@@ -368,12 +498,14 @@ int main(int argc, char **argv)
         }
 
         // Update the first instruction in the instruction buffer
-        *((uint32_t*)insn_buffer) = curr_insn;
+        /* *((uint32_t*)insn_buffer) = curr_insn; */
+        ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
 
         last_insn_illegal = 0;
 
         /*
-         * Invalidate insn_buffer in the d- and icache and force the changes
+         * Invalidate insn_buffer (at the insn to be tested)
+         * in the d- and icache and force the changes
          * (Some instructions might be skipped otherwise.)
          *      dc civac = clean and invalidate data cache at addr
          *      ic ivau  = invalidate instruction cache at addr
@@ -386,7 +518,7 @@ int main(int argc, char **argv)
                 "dsb sy                      \n"
                 "isb                         \n"
                 :
-                : [insn_buffer] "r" (insn_buffer)
+                : [insn_buffer] "r" (insn_buffer + insn_offset*4)
             );
 
         // Jump to the instruction to be tested (and execute it)
@@ -397,9 +529,9 @@ int main(int argc, char **argv)
 
             if (log_fp == NULL) {
                 fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
-                printf("0x%08" PRIx32 ": Hidden instruction!\n", curr_insn);
+                printf("0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
             } else {
-                fprintf(log_fp, "0x%08" PRIx32 ": Hidden instruction!\n", curr_insn);
+                fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
                 fclose(log_fp);
             }
 
