@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <getopt.h>
+#include <libgen.h>
 
 #include <capstone/capstone.h>
 
@@ -292,7 +293,8 @@ struct option long_options[] = {
     {"start",           required_argument,  NULL, 's'},
     {"end",             required_argument,  NULL, 'e'},
     {"no-exec",         no_argument,        NULL, 'n'},
-    {"disable-null",    no_argument,        NULL, 'd'}
+    {"disable-null",    no_argument,        NULL, 'd'},
+    {"log-suffix",      required_argument,  NULL, 'l'}
 };
 
 void print_help(char *cmd_name)
@@ -304,6 +306,7 @@ void print_help(char *cmd_name)
     printf("\t-e, --end <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
     printf("\t-n, --no-exec\t\tCalculate the total amount of undefined instructions, without executing them\n");
     printf("\t-d, --disable-null\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
+    printf("\t-l, --log-suffix\tAdd a suffix to the log file and all temporary files.\n");
 }
 
 int main(int argc, char **argv)
@@ -313,9 +316,10 @@ int main(int argc, char **argv)
     bool no_exec = false;
     bool allocate_null_pages = true;
 
+    char *log_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:td", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:tdl:", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -340,11 +344,24 @@ int main(int argc, char **argv)
             case 'd':
                 allocate_null_pages = false;
                 break;
+            case 'l':
+                if (asprintf(&log_suffix, "%s", optarg) == -1) {
+                    fprintf(stderr, "ERROR: asprintf with log_suffix failed\n");
+                    return 1;
+                }
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
         }
     }
+
+    char *log_path;
+    if (asprintf(&log_path, "%s%s", "logs/log", log_suffix == NULL ? "" : log_suffix) == -1) {
+        fprintf(stderr, "ERROR: asprintf with log_path failed\n");
+        return 1;
+    }
+    free(log_suffix);
 
     if (insn_range_end < insn_range_start) {
         fprintf(stderr, "ERROR: Instruction range start > instruction range end\n");
@@ -422,7 +439,7 @@ int main(int argc, char **argv)
     }
 
     // Clear/create log file
-    FILE *log_fp = fopen("logs/log.txt", "w");
+    FILE *log_fp = fopen(log_path, "w");
     if (log_fp == NULL) {
         fprintf(stderr, "Error opening logfile - will print to stdout instead.\n");
     } else {
@@ -499,10 +516,9 @@ int main(int argc, char **argv)
                     strcpy(cs_str, "error");
                 }
 
-                log_fp = fopen("logs/log.txt", "a");
+                log_fp = fopen(log_path, "a");
 
                 if (log_fp == NULL) {
-                    fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
                     printf("0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
                 } else {
                     fprintf(log_fp, "0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
@@ -545,10 +561,9 @@ int main(int argc, char **argv)
         execute_insn_buffer();
 
         if (!last_insn_illegal) {
-            log_fp = fopen("logs/log.txt", "a");
+            log_fp = fopen(log_path, "a");
 
             if (log_fp == NULL) {
-                fprintf(stderr, "\nError opening logfile - printing to stdout instead:\n");
                 printf("0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
             } else {
                 fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
@@ -574,8 +589,8 @@ int main(int argc, char **argv)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, page_size);
-
     cs_close(&handle);
+    free(log_path);
 
     return 0;
 }
