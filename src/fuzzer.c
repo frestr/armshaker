@@ -14,6 +14,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <getopt.h>
 
 #include <capstone/capstone.h>
 
@@ -286,15 +287,23 @@ void print_statusline(uint32_t curr_insn, uint64_t instructions_checked, uint64_
     fflush(stdout);
 }
 
+struct option long_options[] = {
+    {"help",            no_argument,        NULL, 'h'},
+    {"start",           required_argument,  NULL, 's'},
+    {"end",             required_argument,  NULL, 'e'},
+    {"no-exec",         no_argument,        NULL, 'n'},
+    {"disable-null",    no_argument,        NULL, 'd'}
+};
+
 void print_help(char *cmd_name)
 {
     printf("Usage: %s [option(s)]\n", cmd_name);
     printf("\nOptions:\n");
-    printf("\t-h\t\tPrint help information\n");
-    printf("\t-s <insn>\tStart of instruction search range (in hex) [default: 0x00000000]\n");
-    printf("\t-e <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
-    printf("\t-t\t\tCalculate the total amount of undefined instructions, without executing them\n");
-    printf("\t-d\t\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
+    printf("\t-h, --help\t\tPrint help information\n");
+    printf("\t-s, --start <insn>\tStart of instruction search range (in hex) [default: 0x00000000]\n");
+    printf("\t-e, --end <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
+    printf("\t-n, --no-exec\t\tCalculate the total amount of undefined instructions, without executing them\n");
+    printf("\t-d, --disable-null\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
 }
 
 int main(int argc, char **argv)
@@ -306,7 +315,7 @@ int main(int argc, char **argv)
 
     char *endptr;
     int c;
-    while ((c = getopt(argc, argv, "hs:e:td")) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:td", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -325,7 +334,7 @@ int main(int argc, char **argv)
                     return 1;
                 }
                 break;
-            case 't':
+            case 'n':
                 no_exec = true;
                 break;
             case 'd':
