@@ -71,7 +71,7 @@ def print_summary(stdscr, statuses):
 
     lines = []
     lines.append('checked:   {:,}'.format(int(sum_status['checked'])))
-    lines.append('hidden:    {:,}'.format(int(sum_status['skipped'])))
+    lines.append('skipped    {:,}'.format(int(sum_status['skipped'])))
     lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
     lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
 
