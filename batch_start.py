@@ -5,53 +5,118 @@ import multiprocessing
 import curses
 import atexit
 import sys
+import argparse
+
+WORKER_AREA_WIDTH = 45
+
+def get_status(proc_num):
+    with open('data/status{}'.format(proc_num), 'r') as f:
+        status = {}
+        for line in f.readlines():
+            try:
+                key, val = line.split(':')
+            except ValueError:
+                print("ERROR: Ill-formatted statusfile")
+                exit(1)
+            status[key] = val.replace('\t', ' ').strip()
+
+        # TODO: Remove nasty hardcode
+        if len(status) != 7:
+            # Sometimes we read the statusfile while it's being written to.
+            # Ideally we should have a lock or something, but this works for now...
+            return None
+    return status
+
+
+def print_worker(stdscr, proc_num, status, global_y_offset):
+    lines = []
+    lines.append('insn:      {}'.format(status['curr_insn']))
+    lines.append('cs_disas:  {}'.format(status['cs_disas']))
+    lines.append('opc_disas: {}'.format(status['libopcodes_disas']))
+    lines.append('checked:   {:,}'.format(int(status['instructions_checked'])))
+    lines.append('skipped:   {:,}'.format(int(status['instructions_skipped'])))
+    lines.append('hidden:    {:,}'.format(int(status['hidden_instructions_found'])))
+    lines.append('ips:       {:,}'.format(int(status['instructions_per_sec'])))
+
+    max_line_length = WORKER_AREA_WIDTH - 4
+    for line_num in range(len(lines)):
+        lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
+
+    y_offset = (11 if proc_num > 1 else 1) + global_y_offset
+    x_offset = (proc_num % 2)*(WORKER_AREA_WIDTH+2) + 1
+
+    header = '╔═ Worker {} '.format(proc_num).ljust(WORKER_AREA_WIDTH-1, '═') + '╗'
+    stdscr.addstr(y_offset, x_offset, header)
+    for line_num in range(len(lines)):
+        stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
+    footer = '╚'.ljust(WORKER_AREA_WIDTH-1, '═') + '╝'
+    stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+
+
+def print_summary(stdscr, statuses):
+    sum_status = {
+            'checked': 0,
+            'skipped': 0,
+            'hidden': 0,
+            'ips': 0
+    }
+
+    for status in statuses:
+        if status is None:
+            continue
+        sum_status['checked'] += int(status['instructions_checked'])        
+        sum_status['skipped'] += int(status['instructions_skipped'])        
+        sum_status['hidden'] += int(status['hidden_instructions_found'])        
+        sum_status['ips'] += int(status['instructions_per_sec'])        
+
+    lines = []
+    lines.append('checked:   {:,}'.format(int(sum_status['checked'])))
+    lines.append('hidden:    {:,}'.format(int(sum_status['skipped'])))
+    lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
+    lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
+
+    max_line_length = (WORKER_AREA_WIDTH) * 2 - 2
+
+    for line_num in range(len(lines)):
+        lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
+
+    y_offset = 1
+    x_offset = 1
+
+    header = '╔═ Summary '.ljust(max_line_length+3, '═') + '╗'
+    stdscr.addstr(y_offset, x_offset, header)
+    for line_num in range(len(lines)):
+        stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
+    footer = '╚'.ljust(max_line_length+3, '═') + '╝'
+    stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+
+    return len(lines) + 3
+
 
 def update(stdscr, procs):
+    # Read the statusfiles
+    statuses = []
     for proc_num in range(len(procs)):
-        with open('data/status{}'.format(proc_num), 'r') as f:
-            status = {}
-            for line in f.readlines():
-                try:
-                    key, val = line.split(':')
-                except ValueError:
-                    print("ERROR: Ill-formatted statusfile")
-                    exit(1)
-                status[key] = val.replace('\t', ' ').strip()
+        statuses.append(get_status(proc_num))
 
-            lines = []
-            try:
-                lines.append('insn:      {}'.format(status['curr_insn']))
-                lines.append('cs_disas:  {}'.format(status['cs_disas']))
-                lines.append('opc_disas: {}'.format(status['libopcodes_disas']))
-                lines.append('checked:   {:,}'.format(int(status['instructions_checked'])))
-                lines.append('skipped:   {:,}'.format(int(status['instructions_skipped'])))
-                lines.append('hidden:    {:,}'.format(int(status['hidden_instructions_found'])))
-                lines.append('ips:       {:,}'.format(int(status['instructions_per_sec'])))
-            except KeyError:
-                # Sometimes we read the statusfile while it's being written to.
-                # Ideally we should have a lock or something, but this works for now...
+    # Sometimes reading the status files fails. In those cases, don't
+    # update the values, as they will be incorrect
+    if None not in statuses:
+        # Print summary/aggregation
+        height = print_summary(stdscr, statuses)
+
+        # Print workers
+        for proc_num, status in enumerate(statuses):
+            if status is None:
                 continue
-
-            max_line_length = 45
-            for line_num in range(len(lines)):
-                lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
-
-            y_offset = 11 if proc_num > 1 else 1
-            x_offset = (proc_num % 2)*50 + 1
-
-            header = '╔═ Worker {} '.format(proc_num).ljust(max_line_length+1, '═') + '╗'
-            stdscr.addstr(y_offset, x_offset, header)
-            for line_num in range(len(lines)):
-                stdscr.addstr(y_offset+1+line_num, x_offset, '║{}║'.format(lines[line_num]))
-            footer = '╚'.ljust(max_line_length+1, '═') + '╝'
-            stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+            print_worker(stdscr, proc_num, status, height)
 
     stdscr.refresh()
 
-def start_procs():
+
+def start_procs(search_range):
     procs = []
     proc_count = multiprocessing.cpu_count()
-    search_range = (0, 0xffffffff)
     proc_search_size = int((search_range[1] - search_range[0] + 1) / proc_count)
     for i in range(proc_count):
         insn_start = search_range[0] + proc_search_size * i
@@ -71,23 +136,30 @@ def start_procs():
 
     return procs
 
+
 def exit_handler(procs):
     for proc in procs:
         proc.kill()
 
-def main(stdscr):
-    procs = start_procs()
+
+def main(stdscr, args):
+    search_range = (args.start if type(args.start) is int else args.start[0],
+                    args.end if type(args.end) is int else args.end[0])
+    procs = start_procs(search_range)
 
     curses.cbreak()
     stdscr.keypad(True)
     curses.noecho()
     curses.curs_set(False)
+    stdscr.nodelay(True)
 
     atexit.register(exit_handler, procs)
 
     while True:
         try:
             update(stdscr, procs)
+            if stdscr.getch() == ord('q'):
+                break
             time.sleep(0.1)
         except FileNotFoundError:
             # Wait a little if the status files haven't been created yet
@@ -101,22 +173,20 @@ def main(stdscr):
     curses.curs_set(True)
     curses.endwin()
 
-class Stdout_wrapper:
-    text = ""
-    def write(self,txt):
-        self.text += txt
-        self.text = '\n'.join(self.text.split('\n')[-30:])
-    def get_text(self):
-        return '\n'.join(self.text.split('\n'))
 
 if __name__ == '__main__':
-    # For debugging
-    mystdout = Stdout_wrapper()
-    sys.stdout = mystdout
-    sys.stderr = mystdout
+    def hex_int(x):
+        return int(x, 16)
 
-    curses.wrapper(main)
+    parser = argparse.ArgumentParser(description='fuzzer front-end')
+    parser.add_argument('-s', '--start',
+                        type=hex_int, nargs=1,
+                        help='search range start',
+                        metavar='INSN', default=0)
+    parser.add_argument('-e', '--end',
+                        type=hex_int, nargs=1,
+                        help='search range end',
+                        metavar='INSN', default=0xffffffff)
 
-    sys.stdout = sys.__stdout__
-    sys.stderr = sys.__stdout__
-    sys.stdout.write(mystdout.get_text())
+    args = parser.parse_args()
+    curses.wrapper(main, args)
