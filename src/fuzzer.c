@@ -27,7 +27,7 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUSLINE_UPDATE_RATE 0x200
+#define STATUS_UPDATE_RATE 0x200
 
 // According to capstone+libopcodes (constrained unpredictable excluded)
 #define UNDEFINED_INSTRUCTIONS_TOTAL 2757385481
@@ -37,6 +37,15 @@
 
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
+
+typedef struct {
+    uint32_t curr_insn;
+    char cs_disas[256];
+    char libopcodes_disas[256];
+    uint64_t instructions_checked;
+    uint64_t instructions_skipped;
+    uint64_t hidden_instructions_found;
+} search_status;
 
 void *insn_buffer;
 void *null_pages;
@@ -50,7 +59,8 @@ void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 int libopcodes_disassemble(uint32_t, char*, size_t);
-void print_statusline(uint32_t, uint64_t, uint64_t, uint64_t);
+void print_statusline(search_status*);
+int write_statusfile(char*, search_status*);
 void print_help(char*);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
@@ -249,43 +259,45 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     return 0;
 }
 
-void print_statusline(uint32_t curr_insn, uint64_t instructions_checked, uint64_t instructions_skipped, uint64_t hidden_instructions_found)
+void print_statusline(search_status *status)
 {
-    uint32_t instructions_per_sec = 0;
-    static uint64_t last_time = 0;
-
-    if (last_time == 0) {
-        last_time = get_nano_timestamp();
-    } else {
-        uint64_t curr_time = get_nano_timestamp();
-        instructions_per_sec = STATUSLINE_UPDATE_RATE / (double)((curr_time - last_time) / 1e9);
-        last_time = curr_time;
-    }
-
-    double progress =  (instructions_checked / (float)UNDEFINED_INSTRUCTIONS_TOTAL) * 100;
-
-    // The x1.05 is to compensate for the time it takes to disassemble
-    // instructions (without executing them). A bit ugly, but works
-    // for now.
-    double eta = (UNDEFINED_INSTRUCTIONS_TOTAL - instructions_checked) / (double)(60*60*instructions_per_sec) * 1.05;
-
     printf("\rinsn: 0x%08" PRIx32 ", "
            "checked: %" PRIu64 ", "
            "skipped: %" PRIu64 ", "
-           "hidden: %" PRIu64 ", "
-           "ips: %" PRIu32 ", "
-           "prog: %.4f%%, "
-           "eta: %.1fhrs   ",
-           curr_insn,
-           instructions_checked,
-           instructions_skipped,
-           hidden_instructions_found,
-           instructions_per_sec,
-           progress,
-           eta
+           "hidden: %" PRIu64 "   ",
+           status->curr_insn,
+           status->instructions_checked,
+           status->instructions_skipped,
+           status->hidden_instructions_found
         );
 
     fflush(stdout);
+}
+
+int write_statusfile(char *filepath, search_status *status)
+{
+    FILE *fp = fopen(filepath, "w");
+    if (fp == NULL) {
+        return -1;
+    }
+
+    fprintf(fp,
+            "curr_insn:%08" PRIx32 "\n"
+            "cs_disas:%s\n"
+            "libopcodes_disas:%s\n"
+            "instructions_checked:%" PRIu64 "\n"
+            "instructions_skipped:%" PRIu64 "\n"
+            "hidden_instructions_found:%" PRIu64 "\n",
+            status->curr_insn,
+            status->cs_disas,
+            status->libopcodes_disas,
+            status->instructions_checked,
+            status->instructions_skipped,
+            status->hidden_instructions_found
+        );
+
+    fclose(fp);
+    return 0;
 }
 
 struct option long_options[] = {
@@ -294,7 +306,8 @@ struct option long_options[] = {
     {"end",             required_argument,  NULL, 'e'},
     {"no-exec",         no_argument,        NULL, 'n'},
     {"disable-null",    no_argument,        NULL, 'd'},
-    {"log-suffix",      required_argument,  NULL, 'l'}
+    {"log-suffix",      required_argument,  NULL, 'l'},
+    {"quiet",           required_argument,  NULL, 'q'}
 };
 
 void print_help(char *cmd_name)
@@ -306,7 +319,8 @@ void print_help(char *cmd_name)
     printf("\t-e, --end <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
     printf("\t-n, --no-exec\t\tCalculate the total amount of undefined instructions, without executing them\n");
     printf("\t-d, --disable-null\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
-    printf("\t-l, --log-suffix\tAdd a suffix to the log file and all temporary files.\n");
+    printf("\t-l, --log-suffix\tAdd a suffix to the log and status file.\n");
+    printf("\t-q, --quiet\tDon't print the status line.\n");
 }
 
 int main(int argc, char **argv)
@@ -315,11 +329,12 @@ int main(int argc, char **argv)
     uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
     bool no_exec = false;
     bool allocate_null_pages = true;
+    bool quiet = false;
 
-    char *log_suffix = NULL;
+    char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:tdl:", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:tdl:q", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -345,10 +360,13 @@ int main(int argc, char **argv)
                 allocate_null_pages = false;
                 break;
             case 'l':
-                if (asprintf(&log_suffix, "%s", optarg) == -1) {
-                    fprintf(stderr, "ERROR: asprintf with log_suffix failed\n");
+                if (asprintf(&file_suffix, "%s", optarg) == -1) {
+                    fprintf(stderr, "ERROR: asprintf with file_suffix failed\n");
                     return 1;
                 }
+                break;
+            case 'q':
+                quiet = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -357,11 +375,18 @@ int main(int argc, char **argv)
     }
 
     char *log_path;
-    if (asprintf(&log_path, "%s%s", "logs/log", log_suffix == NULL ? "" : log_suffix) == -1) {
+    if (asprintf(&log_path, "%s%s", "data/log", file_suffix == NULL ? "" : file_suffix) == -1) {
         fprintf(stderr, "ERROR: asprintf with log_path failed\n");
         return 1;
     }
-    free(log_suffix);
+
+    char *statusfile_path;
+    if (asprintf(&statusfile_path, "%s%s", "data/status", file_suffix == NULL ? "" : file_suffix) == -1) {
+        fprintf(stderr, "ERROR: asprintf with statusfile_path failed\n");
+        return 1;
+    }
+    if (file_suffix != NULL)
+        free(file_suffix);
 
     if (insn_range_end < insn_range_start) {
         fprintf(stderr, "ERROR: Instruction range start > instruction range end\n");
@@ -430,10 +455,10 @@ int main(int argc, char **argv)
 
     struct stat st = {0};
 
-    // Create log file directory
-    if (stat("logs", &st) == -1) {
-        if (mkdir("logs", 0755) == -1) {
-            perror("Unable to make logs directory");
+    // Create data directory
+    if (stat("data", &st) == -1) {
+        if (mkdir("data", 0755) == -1) {
+            perror("Unable to make data directory");
             return 1;
         }
     }
@@ -449,33 +474,55 @@ int main(int argc, char **argv)
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
     uint64_t hidden_instructions_found = 0;
-    uint32_t curr_insn = 0;
+
+    search_status curr_status = {0};
 
     for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
         uint32_t curr_insn = i & 0xffffffff;
-
-        if (i % STATUSLINE_UPDATE_RATE == 0 || i == insn_range_end) {
-            print_statusline(curr_insn,
-                             instructions_checked,
-                             instructions_skipped,
-                             hidden_instructions_found);
-        }
+        curr_status.curr_insn = curr_insn;
 
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
-
         bool capstone_undefined = (capstone_count == 0);
+        char cs_str[256] = {0};
+        if (capstone_count > 0) {
+            snprintf(cs_str,
+                     sizeof(cs_str),
+                     "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
+        } else {
+            strcpy(cs_str, "error");
+        }
 
         // Now check what libopcodes thinks
-        char libopcodes_str[80] = {0};
-        int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, 80);
+        char libopcodes_str[265] = {0};
+        int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, sizeof(libopcodes_str));
         if (libopcodes_ret != 0) {
             fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
             return 1;
         }
 
+        // Write the current search status to the statusfile now and then
+        if (i % STATUS_UPDATE_RATE == 0 || i == insn_range_end) {
+            curr_status.curr_insn = curr_insn;
+            strncpy(curr_status.cs_disas, cs_str, sizeof(curr_status.cs_disas));
+            strncpy(curr_status.libopcodes_disas,
+                    libopcodes_str,
+                    sizeof(curr_status.libopcodes_disas));
+            curr_status.instructions_checked = instructions_checked;
+            curr_status.instructions_skipped = instructions_skipped;
+            curr_status.hidden_instructions_found = hidden_instructions_found;
+
+            if (write_statusfile(statusfile_path, &curr_status) == -1) {
+                fprintf(stderr, "ERROR: Failed to write to statusfile\n");
+            }
+
+            if (!quiet)
+                print_statusline(&curr_status);
+        }
+
         bool libopcodes_undefined = (strstr(libopcodes_str, "undefined") != NULL
-                                 || strstr(libopcodes_str, "NYI") != NULL);
+                                  || strstr(libopcodes_str, "NYI") != NULL);
+
         /*
          * TODO: Also check for (constrained) unpredictable instructions.
          * Proper recovery after executing instructions with side effects
@@ -509,13 +556,6 @@ int main(int argc, char **argv)
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
             if (capstone_undefined || libopcodes_undefined) {
-                char cs_str[256];
-                if (capstone_count > 0) {
-                    snprintf(cs_str, sizeof(cs_str), "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
-                } else {
-                    strcpy(cs_str, "error");
-                }
-
                 log_fp = fopen(log_path, "a");
 
                 if (log_fp == NULL) {
@@ -577,10 +617,11 @@ int main(int argc, char **argv)
     }
 
     // Print the statusline one last time to capture the result of the last insn
-    print_statusline(curr_insn,
-                     instructions_checked,
-                     instructions_skipped,
-                     hidden_instructions_found);
+    curr_status.instructions_checked = instructions_checked;
+    curr_status.instructions_skipped = instructions_skipped;
+    curr_status.hidden_instructions_found = hidden_instructions_found;
+
+    print_statusline(&curr_status);
 
     // Compensate for the statusline not having a linebreak
     printf("\n");
