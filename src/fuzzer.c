@@ -496,7 +496,7 @@ int main(int argc, char **argv)
                      sizeof(cs_str),
                      "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
         } else {
-            strcpy(cs_str, "error");
+            strcpy(cs_str, "invalid assembly code");
         }
 
         // Now check what libopcodes thinks
