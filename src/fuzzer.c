@@ -45,6 +45,7 @@ typedef struct {
     uint64_t instructions_checked;
     uint64_t instructions_skipped;
     uint64_t hidden_instructions_found;
+    uint64_t instructions_per_sec;
 } search_status;
 
 void *insn_buffer;
@@ -264,11 +265,13 @@ void print_statusline(search_status *status)
     printf("\rinsn: 0x%08" PRIx32 ", "
            "checked: %" PRIu64 ", "
            "skipped: %" PRIu64 ", "
-           "hidden: %" PRIu64 "   ",
+           "hidden: %" PRIu64 "   "
+           "ips: %" PRIu64 "   ",
            status->curr_insn,
            status->instructions_checked,
            status->instructions_skipped,
-           status->hidden_instructions_found
+           status->hidden_instructions_found,
+           status->instructions_per_sec
         );
 
     fflush(stdout);
@@ -287,13 +290,15 @@ int write_statusfile(char *filepath, search_status *status)
             "libopcodes_disas:%s\n"
             "instructions_checked:%" PRIu64 "\n"
             "instructions_skipped:%" PRIu64 "\n"
-            "hidden_instructions_found:%" PRIu64 "\n",
+            "hidden_instructions_found:%" PRIu64 "\n"
+            "instructions_per_sec:%" PRIu64 "\n",
             status->curr_insn,
             status->cs_disas,
             status->libopcodes_disas,
             status->instructions_checked,
             status->instructions_skipped,
-            status->hidden_instructions_found
+            status->hidden_instructions_found,
+            status->instructions_per_sec
         );
 
     fclose(fp);
@@ -474,6 +479,7 @@ int main(int argc, char **argv)
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
     uint64_t hidden_instructions_found = 0;
+    uint64_t last_timestamp = get_nano_timestamp();
 
     search_status curr_status = {0};
 
@@ -511,6 +517,11 @@ int main(int argc, char **argv)
             curr_status.instructions_checked = instructions_checked;
             curr_status.instructions_skipped = instructions_skipped;
             curr_status.hidden_instructions_found = hidden_instructions_found;
+
+            uint64_t curr_timestamp = get_nano_timestamp();
+            curr_status.instructions_per_sec =
+                STATUS_UPDATE_RATE / (double)((curr_timestamp - last_timestamp) / 1e9);
+            last_timestamp = curr_timestamp;
 
             if (write_statusfile(statusfile_path, &curr_status) == -1) {
                 fprintf(stderr, "ERROR: Failed to write to statusfile\n");
