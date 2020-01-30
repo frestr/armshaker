@@ -46,6 +46,7 @@ typedef struct {
     uint64_t instructions_checked;
     uint64_t instructions_skipped;
     uint64_t hidden_instructions_found;
+    uint64_t disas_discrepancies;
     uint64_t instructions_per_sec;
 } search_status;
 
@@ -266,12 +267,14 @@ void print_statusline(search_status *status)
     printf("\rinsn: 0x%08" PRIx32 ", "
            "checked: %" PRIu64 ", "
            "skipped: %" PRIu64 ", "
-           "hidden: %" PRIu64 "   "
+           "hidden: %" PRIu64 ", "
+           "discreps: %" PRIu64 ", "
            "ips: %" PRIu64 "   ",
            status->curr_insn,
            status->instructions_checked,
            status->instructions_skipped,
            status->hidden_instructions_found,
+           status->disas_discrepancies,
            status->instructions_per_sec
         );
 
@@ -297,6 +300,7 @@ int write_statusfile(char *filepath, search_status *status)
             "instructions_checked:%" PRIu64 "\n"
             "instructions_skipped:%" PRIu64 "\n"
             "hidden_instructions_found:%" PRIu64 "\n"
+            "disas_discrepancies:%" PRIu64 "\n"
             "instructions_per_sec:%" PRIu64 "\n",
             status->curr_insn,
             status->cs_disas,
@@ -304,6 +308,7 @@ int write_statusfile(char *filepath, search_status *status)
             status->instructions_checked,
             status->instructions_skipped,
             status->hidden_instructions_found,
+            status->disas_discrepancies,
             status->instructions_per_sec
         );
 
@@ -490,13 +495,13 @@ int main(int argc, char **argv)
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
     uint64_t hidden_instructions_found = 0;
+    uint64_t disas_discreps_found = 0;
     uint64_t last_timestamp = get_nano_timestamp();
 
     search_status curr_status = {0};
 
     for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
         uint32_t curr_insn = i & 0xffffffff;
-        curr_status.curr_insn = curr_insn;
 
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
@@ -527,6 +532,7 @@ int main(int argc, char **argv)
                     sizeof(curr_status.libopcodes_disas));
             curr_status.instructions_checked = instructions_checked;
             curr_status.instructions_skipped = instructions_skipped;
+            curr_status.disas_discrepancies = disas_discreps_found;
             curr_status.hidden_instructions_found = hidden_instructions_found;
 
             uint64_t curr_timestamp = get_nano_timestamp();
@@ -581,11 +587,13 @@ int main(int argc, char **argv)
                 log_fp = fopen(log_path, "a");
 
                 if (log_fp == NULL) {
-                    printf("0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                    printf("0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
                 } else {
-                    fprintf(log_fp, "0x%08" PRIx32 " | inconsistency: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                    fprintf(log_fp, "0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
                     fclose(log_fp);
                 }
+
+                ++disas_discreps_found;
             }
 
             if (capstone_count > 0)

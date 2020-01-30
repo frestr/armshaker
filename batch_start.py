@@ -30,7 +30,7 @@ def get_status(proc_num):
         status[key] = val.replace('\t', ' ').strip()
 
     # TODO: Remove nasty hardcode
-    if len(status) != 7:
+    if len(status) != 8:
         # Sometimes we read the statusfile while it's being written to.
         # Ideally we should have a lock or something, but this works for now...
         return None
@@ -46,6 +46,7 @@ def print_worker(stdscr, proc_num, status, global_y_offset):
     lines.append('checked:   {:,}'.format(int(status['instructions_checked'])))
     lines.append('skipped:   {:,}'.format(int(status['instructions_skipped'])))
     lines.append('hidden:    {:,}'.format(int(status['hidden_instructions_found'])))
+    lines.append('discreps:  {:,}'.format(int(status['disas_discrepancies'])))
     lines.append('ips:       {:,}'.format(int(status['instructions_per_sec'])))
 
     max_line_length = WORKER_AREA_WIDTH - 4
@@ -69,6 +70,7 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
             'skipped': 0,
             'hidden': 0,
             'ips': 0,
+            'discreps': 0,
             'insns_so_far': 0
     }
 
@@ -79,6 +81,7 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
         sum_status['skipped'] += int(status['instructions_skipped'])
         sum_status['hidden'] += int(status['hidden_instructions_found'])
         sum_status['ips'] += int(status['instructions_per_sec'])
+        sum_status['discreps'] += int(status['disas_discrepancies'])
 
         sum_status['insns_so_far'] += (int(status['instructions_checked'])
                                      + int(status['instructions_skipped'])
@@ -95,8 +98,9 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
 
     lines = []
     lines.append('checked:   {:,}'.format(int(sum_status['checked'])))
-    lines.append('skipped    {:,}'.format(int(sum_status['skipped'])))
+    lines.append('skipped:   {:,}'.format(int(sum_status['skipped'])))
     lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
+    lines.append('discreps:  {:,}'.format(int(sum_status['discreps'])))
     lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
     lines.append('progress:  {:.4f}%'.format(progress))
     lines.append('elapsed:   {:.2f}hrs'.format(elapsed_hrs))
@@ -112,7 +116,7 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
     x_offset = 1
 
     if not just_height:
-        header = '╔═ Summary '.ljust(max_line_length*2, '═') + '╗'
+        header = '╔═ Summary '.ljust(max_line_length*2-3, '═') + '╗'
         stdscr.addstr(y_offset, x_offset, header)
         # Add actual strings
         for line_num in range(len(lines)):
@@ -122,8 +126,8 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
         # Add border
         for line_num in range(max_height):
             stdscr.addstr(y_offset+1+line_num, x_offset, '║')
-            stdscr.addstr(y_offset+1+line_num, x_offset+max_line_length*2, '║')
-        footer = '╚'.ljust(max_line_length*2, '═') + '╝'
+            stdscr.addstr(y_offset+1+line_num, x_offset+max_line_length*2-3, '║')
+        footer = '╚'.ljust(max_line_length*2-3, '═') + '╝'
         stdscr.addstr(y_offset+1+max_height, x_offset, footer)
 
     return max_height + 3
