@@ -133,6 +133,16 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
     return max_height + 3
 
 
+def print_done(stdscr):
+    y_offset = 15
+    x_offset = WORKER_AREA_WIDTH - 5
+    stdscr.addstr(y_offset+0, x_offset, '╔═════════════╗')
+    stdscr.addstr(y_offset+1, x_offset, '║             ║')
+    stdscr.addstr(y_offset+2, x_offset, '║    Done!    ║')
+    stdscr.addstr(y_offset+3, x_offset, '║             ║')
+    stdscr.addstr(y_offset+4, x_offset, '╚═════════════╝')
+
+
 def update(stdscr, procs, extra_data):
     # Read the statusfiles
     statuses = []
@@ -169,6 +179,7 @@ def start_procs(search_range):
                '-d', '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
                                 stdin=subprocess.PIPE)
         procs.append(proc)
 
@@ -198,12 +209,39 @@ def main(stdscr, args):
             'time_started': time.time()
     }
 
+    quit_str = 'Done'
+
     while True:
         try:
             update(stdscr, procs, extra_data)
             if stdscr.getch() == ord('q'):
+                quit_str = 'User abort'
                 break
-            time.sleep(0.1)
+            quit = False
+            done = True
+            for i in range(len(procs)):
+                ret = procs[i].poll()
+                if ret == 1:
+                    outs, errs = procs[i].communicate()
+                    quit_str = 'Worker {} crashed:\n{}'.format(i, errs.decode('utf-8'))
+                    quit = True
+                    break
+                elif ret != 0:
+                    done = False
+                    break
+            if quit:
+                break
+            elif done:
+                # All processes terminated sucessfully.
+                # When done, update one last time, show a message and
+                # wait for any key before quitting
+                stdscr.nodelay(False)
+                update(stdscr, procs, extra_data)
+                print_done(stdscr)
+                stdscr.getch()
+                break
+            else:
+                time.sleep(0.1)
         except FileNotFoundError:
             # Wait a little if the status files haven't been created yet
             time.sleep(0.1)
@@ -215,6 +253,8 @@ def main(stdscr, args):
     curses.echo()
     curses.curs_set(True)
     curses.endwin()
+
+    return quit_str
 
 
 if __name__ == '__main__':
@@ -232,4 +272,5 @@ if __name__ == '__main__':
                         metavar='INSN', default=0xffffffff)
 
     args = parser.parse_args()
-    curses.wrapper(main, args)
+    quit_str = curses.wrapper(main, args)
+    print(quit_str)
