@@ -162,7 +162,7 @@ def update(stdscr, procs, extra_data):
     stdscr.refresh()
 
 
-def start_procs(search_range):
+def start_procs(search_range, disable_null=False):
     procs = []
     proc_count = multiprocessing.cpu_count()
     proc_search_size = int((search_range[1] - search_range[0] + 1) / proc_count)
@@ -176,7 +176,8 @@ def start_procs(search_range):
                '-l', str(i),
                '-s', hex(insn_start),
                '-e', hex(insn_end),
-               '-d', '-q']
+               '-d' if disable_null else '',
+               '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
@@ -203,7 +204,7 @@ def main(stdscr, args):
 
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
-    procs = start_procs(search_range)
+    procs = start_procs(search_range, args.disable_null)
 
     curses.cbreak()
     stdscr.keypad(True)
@@ -279,6 +280,9 @@ if __name__ == '__main__':
                         type=hex_int, nargs=1,
                         help='search range end',
                         metavar='INSN', default=0xffffffff)
+    parser.add_argument('-d', '--disable-null',
+                        action='store_true',
+                        help='Enable non-root execution by disabling null page allocation')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
