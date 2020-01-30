@@ -650,8 +650,10 @@ int main(int argc, char **argv)
     curr_status.instructions_checked = instructions_checked;
     curr_status.instructions_skipped = instructions_skipped;
     curr_status.hidden_instructions_found = hidden_instructions_found;
+    curr_status.disas_discrepancies = disas_discreps_found;
 
     print_statusline(&curr_status);
+    write_statusfile(statusfile_path, &curr_status);
 
     // Compensate for the statusline not having a linebreak
     printf("\n");
