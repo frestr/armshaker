@@ -16,6 +16,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <libgen.h>
+#include <sys/file.h>
 
 #include <capstone/capstone.h>
 
@@ -284,6 +285,11 @@ int write_statusfile(char *filepath, search_status *status)
         return -1;
     }
 
+    if (flock(fileno(fp), LOCK_EX) == -1) {
+        perror("Locking statusfile failed");
+        return -1;
+    }
+
     fprintf(fp,
             "curr_insn:%08" PRIx32 "\n"
             "cs_disas:%s\n"
@@ -300,6 +306,11 @@ int write_statusfile(char *filepath, search_status *status)
             status->hidden_instructions_found,
             status->instructions_per_sec
         );
+
+    if (flock(fileno(fp), LOCK_UN) == -1) {
+        perror("Unlocking statusfile failed");
+        return -1;
+    }
 
     fclose(fp);
     return 0;

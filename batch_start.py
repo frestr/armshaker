@@ -6,25 +6,34 @@ import curses
 import atexit
 import sys
 import argparse
+import fcntl
 
 WORKER_AREA_WIDTH = 45
 
 def get_status(proc_num):
-    with open('data/status{}'.format(proc_num), 'r') as f:
-        status = {}
-        for line in f.readlines():
-            try:
-                key, val = line.split(':')
-            except ValueError:
-                print("ERROR: Ill-formatted statusfile")
-                exit(1)
-            status[key] = val.replace('\t', ' ').strip()
+    f = open('data/status{}'.format(proc_num), 'r')
+    fcntl.flock(f, fcntl.LOCK_EX)
 
-        # TODO: Remove nasty hardcode
-        if len(status) != 7:
-            # Sometimes we read the statusfile while it's being written to.
-            # Ideally we should have a lock or something, but this works for now...
+    lines = f.readlines()
+
+    fcntl.flock(f, fcntl.LOCK_UN)
+    f.close()
+
+    status = {}
+    for line in lines:
+        try:
+            key, val = line.split(':')
+        except ValueError:
+            print("ERROR: Ill-formatted statusfile")
             return None
+        status[key] = val.replace('\t', ' ').strip()
+
+    # TODO: Remove nasty hardcode
+    if len(status) != 7:
+        # Sometimes we read the statusfile while it's being written to.
+        # Ideally we should have a lock or something, but this works for now...
+        return None
+
     return status
 
 
@@ -53,7 +62,7 @@ def print_worker(stdscr, proc_num, status, global_y_offset):
     stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
 
 
-def print_summary(stdscr, statuses):
+def print_summary(stdscr, statuses, just_height=False):
     sum_status = {
             'checked': 0,
             'skipped': 0,
@@ -83,12 +92,13 @@ def print_summary(stdscr, statuses):
     y_offset = 1
     x_offset = 1
 
-    header = '╔═ Summary '.ljust(max_line_length+3, '═') + '╗'
-    stdscr.addstr(y_offset, x_offset, header)
-    for line_num in range(len(lines)):
-        stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
-    footer = '╚'.ljust(max_line_length+3, '═') + '╝'
-    stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+    if not just_height:
+        header = '╔═ Summary '.ljust(max_line_length+3, '═') + '╗'
+        stdscr.addstr(y_offset, x_offset, header)
+        for line_num in range(len(lines)):
+            stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
+        footer = '╚'.ljust(max_line_length+3, '═') + '╝'
+        stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
 
     return len(lines) + 3
 
@@ -101,15 +111,13 @@ def update(stdscr, procs):
 
     # Sometimes reading the status files fails. In those cases, don't
     # update the values, as they will be incorrect
-    if None not in statuses:
-        # Print summary/aggregation
-        height = print_summary(stdscr, statuses)
+    height = print_summary(stdscr, statuses, None in statuses)
 
-        # Print workers
-        for proc_num, status in enumerate(statuses):
-            if status is None:
-                continue
-            print_worker(stdscr, proc_num, status, height)
+    # Print workers
+    for proc_num, status in enumerate(statuses):
+        if status is None:
+            continue
+        print_worker(stdscr, proc_num, status, height)
 
     stdscr.refresh()
 
