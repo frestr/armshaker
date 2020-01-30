@@ -192,6 +192,15 @@ def exit_handler(procs):
 
 
 def main(stdscr, args):
+    # Ideally small terminals should be handled by just drawing a partial
+    # overview, instead of failing
+    y_size, x_size = stdscr.getmaxyx()
+    y_req = 28
+    x_req = WORKER_AREA_WIDTH*2 + 5
+    if y_size < y_req or x_size < x_req:
+        return 'Terminal is too small (x/y: {}/{}).\nRequired size: {}/{}' \
+                    .format(x_size, y_size, x_req, y_req)
+
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
     procs = start_procs(search_range)
