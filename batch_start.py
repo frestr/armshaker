@@ -7,6 +7,7 @@ import atexit
 import sys
 import argparse
 import fcntl
+import time
 
 WORKER_AREA_WIDTH = 45
 
@@ -62,29 +63,47 @@ def print_worker(stdscr, proc_num, status, global_y_offset):
     stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
 
 
-def print_summary(stdscr, statuses, just_height=False):
+def print_summary(stdscr, statuses, extra_data, just_height=False):
     sum_status = {
             'checked': 0,
             'skipped': 0,
             'hidden': 0,
-            'ips': 0
+            'ips': 0,
+            'insns_so_far': 0
     }
 
     for status in statuses:
         if status is None:
             continue
-        sum_status['checked'] += int(status['instructions_checked'])        
-        sum_status['skipped'] += int(status['instructions_skipped'])        
-        sum_status['hidden'] += int(status['hidden_instructions_found'])        
-        sum_status['ips'] += int(status['instructions_per_sec'])        
+        sum_status['checked'] += int(status['instructions_checked'])
+        sum_status['skipped'] += int(status['instructions_skipped'])
+        sum_status['hidden'] += int(status['hidden_instructions_found'])
+        sum_status['ips'] += int(status['instructions_per_sec'])
+
+        sum_status['insns_so_far'] += (int(status['instructions_checked'])
+                                     + int(status['instructions_skipped'])
+                                     + int(status['hidden_instructions_found']))
+
+    total_insns = extra_data['search_range'][1] - extra_data['search_range'][0] + 1
+    progress = (sum_status['insns_so_far'] / total_insns) * 100
+    elapsed_hrs = (time.time() - extra_data['time_started']) / 60 / 60
+
+    if sum_status['ips'] != 0:
+        eta_hrs = ((total_insns - sum_status['insns_so_far']) / sum_status['ips']) / 60 / 60
+    else:
+        eta_hrs = float('inf')
 
     lines = []
     lines.append('checked:   {:,}'.format(int(sum_status['checked'])))
     lines.append('skipped    {:,}'.format(int(sum_status['skipped'])))
     lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
     lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
+    lines.append('progress:  {:.4f}%'.format(progress))
+    lines.append('elapsed:   {:.2f}hrs'.format(elapsed_hrs))
+    lines.append('eta:       {:.1f}hrs'.format(eta_hrs))
 
-    max_line_length = (WORKER_AREA_WIDTH) * 2 - 2
+    max_line_length = (WORKER_AREA_WIDTH) + 2
+    max_height = 4
 
     for line_num in range(len(lines)):
         lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
@@ -93,17 +112,24 @@ def print_summary(stdscr, statuses, just_height=False):
     x_offset = 1
 
     if not just_height:
-        header = '╔═ Summary '.ljust(max_line_length+3, '═') + '╗'
+        header = '╔═ Summary '.ljust(max_line_length*2, '═') + '╗'
         stdscr.addstr(y_offset, x_offset, header)
+        # Add actual strings
         for line_num in range(len(lines)):
-            stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
-        footer = '╚'.ljust(max_line_length+3, '═') + '╝'
-        stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+            stdscr.addstr(y_offset+1+(line_num % max_height),
+                          x_offset + (line_num // max_height)*max_line_length,
+                          '  {}  '.format(lines[line_num]))
+        # Add border
+        for line_num in range(max_height):
+            stdscr.addstr(y_offset+1+line_num, x_offset, '║')
+            stdscr.addstr(y_offset+1+line_num, x_offset+max_line_length*2, '║')
+        footer = '╚'.ljust(max_line_length*2, '═') + '╝'
+        stdscr.addstr(y_offset+1+max_height, x_offset, footer)
 
-    return len(lines) + 3
+    return max_height + 3
 
 
-def update(stdscr, procs):
+def update(stdscr, procs, extra_data):
     # Read the statusfiles
     statuses = []
     for proc_num in range(len(procs)):
@@ -111,7 +137,7 @@ def update(stdscr, procs):
 
     # Sometimes reading the status files fails. In those cases, don't
     # update the values, as they will be incorrect
-    height = print_summary(stdscr, statuses, None in statuses)
+    height = print_summary(stdscr, statuses, extra_data, None in statuses)
 
     # Print workers
     for proc_num, status in enumerate(statuses):
@@ -163,9 +189,14 @@ def main(stdscr, args):
 
     atexit.register(exit_handler, procs)
 
+    extra_data = {
+            'search_range': search_range,
+            'time_started': time.time()
+    }
+
     while True:
         try:
-            update(stdscr, procs)
+            update(stdscr, procs, extra_data)
             if stdscr.getch() == ord('q'):
                 break
             time.sleep(0.1)
