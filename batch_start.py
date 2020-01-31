@@ -143,7 +143,7 @@ def print_done(stdscr):
     stdscr.addstr(y_offset+4, x_offset, '╚═════════════╝')
 
 
-def update(stdscr, procs, extra_data):
+def update(stdscr, pad, procs, extra_data):
     # Read the statusfiles
     statuses = []
     for proc_num in range(len(procs)):
@@ -151,15 +151,16 @@ def update(stdscr, procs, extra_data):
 
     # Sometimes reading the status files fails. In those cases, don't
     # update the values, as they will be incorrect
-    height = print_summary(stdscr, statuses, extra_data, None in statuses)
+    height = print_summary(pad, statuses, extra_data, None in statuses)
 
     # Print workers
     for proc_num, status in enumerate(statuses):
         if status is None:
             continue
-        print_worker(stdscr, proc_num, status, height)
+        print_worker(pad, proc_num, status, height)
 
-    stdscr.refresh()
+    y_size, x_size = stdscr.getmaxyx()
+    pad.refresh(0, 0, 0, 0, y_size-1, x_size-1)
 
 
 def start_procs(search_range, disable_null=False):
@@ -193,24 +194,19 @@ def exit_handler(procs):
 
 
 def main(stdscr, args):
-    # Ideally small terminals should be handled by just drawing a partial
-    # overview, instead of failing
-    y_size, x_size = stdscr.getmaxyx()
-    y_req = 28
-    x_req = WORKER_AREA_WIDTH*2 + 5
-    if y_size < y_req or x_size < x_req:
-        return 'Terminal is too small (x/y: {}/{}).\nRequired size: {}/{}' \
-                    .format(x_size, y_size, x_req, y_req)
-
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
     procs = start_procs(search_range, args.disable_null)
 
     curses.cbreak()
-    stdscr.keypad(True)
     curses.noecho()
     curses.curs_set(False)
+    stdscr.keypad(True)
     stdscr.nodelay(True)
+
+    pad = curses.newpad(100, 100)
+    pad.nodelay(True)
+    pad.keypad(True)
 
     atexit.register(exit_handler, procs)
 
@@ -223,7 +219,7 @@ def main(stdscr, args):
 
     while True:
         try:
-            update(stdscr, procs, extra_data)
+            update(stdscr, pad, procs, extra_data)
             if stdscr.getch() == ord('q'):
                 quit_str = 'User abort'
                 break
@@ -246,7 +242,8 @@ def main(stdscr, args):
                 # When done, update one last time, show a message and
                 # wait for any key before quitting
                 stdscr.nodelay(False)
-                update(stdscr, procs, extra_data)
+                pad.nodelay(False)
+                update(stdscr, pad, procs, extra_data)
                 print_done(stdscr)
                 stdscr.getch()
                 break
@@ -260,6 +257,7 @@ def main(stdscr, args):
 
     curses.nocbreak()
     stdscr.keypad(False)
+    pad.keypad(False)
     curses.echo()
     curses.curs_set(True)
     curses.endwin()
