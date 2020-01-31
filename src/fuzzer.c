@@ -39,6 +39,8 @@
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
 
+#define PAGE_SIZE 4096
+
 typedef struct {
     uint32_t curr_insn;
     char cs_disas[256];
@@ -52,7 +54,6 @@ typedef struct {
 
 void *insn_buffer;
 void *null_pages;
-long page_size;
 volatile sig_atomic_t last_insn_illegal = 0;
 uint32_t insn_offset = 0;
 
@@ -126,37 +127,37 @@ void execution_boilerplate(void)
 
             // Reset the regs to make insn execution deterministic
             // and avoid program corruption
-            "mov x0, #0                 \n"
-            "mov x1, #0                 \n"
-            "mov x2, #0                 \n"
-            "mov x3, #0                 \n"
-            "mov x4, #0                 \n"
-            "mov x5, #0                 \n"
-            "mov x6, #0                 \n"
-            "mov x7, #0                 \n"
-            "mov x8, #0                 \n"
-            "mov x9, #0                 \n"
-            "mov x10, #0                \n"
-            "mov x11, #0                \n"
-            "mov x12, #0                \n"
-            "mov x13, #0                \n"
-            "mov x14, #0                \n"
-            "mov x15, #0                \n"
-            "mov x16, #0                \n"
-            "mov x17, #0                \n"
-            "mov x18, #0                \n"
-            "mov x19, #0                \n"
-            "mov x20, #0                \n"
-            "mov x21, #0                \n"
-            "mov x22, #0                \n"
-            "mov x23, #0                \n"
-            "mov x24, #0                \n"
-            "mov x25, #0                \n"
-            "mov x26, #0                \n"
-            "mov x27, #0                \n"
-            "mov x28, #0                \n"
-            "mov x29, #0                \n"
-            "mov x30, #0                \n"
+            "mov x0, #%[reg_init]       \n"
+            "mov x1, #%[reg_init]       \n"
+            "mov x2, #%[reg_init]       \n"
+            "mov x3, #%[reg_init]       \n"
+            "mov x4, #%[reg_init]       \n"
+            "mov x5, #%[reg_init]       \n"
+            "mov x6, #%[reg_init]       \n"
+            "mov x7, #%[reg_init]       \n"
+            "mov x8, #%[reg_init]       \n"
+            "mov x9, #%[reg_init]       \n"
+            "mov x10, #%[reg_init]      \n"
+            "mov x11, #%[reg_init]      \n"
+            "mov x12, #%[reg_init]      \n"
+            "mov x13, #%[reg_init]      \n"
+            "mov x14, #%[reg_init]      \n"
+            "mov x15, #%[reg_init]      \n"
+            "mov x16, #%[reg_init]      \n"
+            "mov x17, #%[reg_init]      \n"
+            "mov x18, #%[reg_init]      \n"
+            "mov x19, #%[reg_init]      \n"
+            "mov x20, #%[reg_init]      \n"
+            "mov x21, #%[reg_init]      \n"
+            "mov x22, #%[reg_init]      \n"
+            "mov x23, #%[reg_init]      \n"
+            "mov x24, #%[reg_init]      \n"
+            "mov x25, #%[reg_init]      \n"
+            "mov x26, #%[reg_init]      \n"
+            "mov x27, #%[reg_init]      \n"
+            "mov x28, #%[reg_init]      \n"
+            "mov x29, #%[reg_init]      \n"
+            "mov x30, #%[reg_init]      \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
@@ -185,6 +186,8 @@ void execution_boilerplate(void)
             "ret                        \n"
             ".global boilerplate_end    \n"
             "boilerplate_end:           \n"
+            :
+            : [reg_init] "n" (PAGE_SIZE)
             );
 }
 
@@ -426,11 +429,11 @@ int main(int argc, char **argv)
 
     init_signal_handler(signal_handler);
 
-    page_size = sysconf(_SC_PAGE_SIZE);
+    /* page_size = sysconf(_SC_PAGE_SIZE); */
 
     // Allocate an executable page / memory region
     insn_buffer = mmap(NULL,
-                       page_size,
+                       PAGE_SIZE,
                        PROT_READ | PROT_WRITE | PROT_EXEC,
                        MAP_PRIVATE | MAP_ANONYMOUS,
                        -1,
@@ -454,14 +457,15 @@ int main(int argc, char **argv)
 
     if (allocate_null_pages) {
         /*
-         * Allocate a few pages starting at address 0.
+         * Allocate two pages starting at address 0.
          * This is to prevent segfaults when running insns like [x0] when x0 is 0.
          *
          * If I read Arm ARM correctly, the max offset for register loads are
-         * 12 bits, so one page (4096 bytes) should be enough, but oh well.
+         * 12 bits, so one page (4096 bytes) should be enough. The reason for
+         * allocating two pages is to allow for negative address offsets.
          */
         null_pages = mmap(0,
-                          page_size * 16,
+                          PAGE_SIZE * 2,
                           PROT_READ | PROT_WRITE,
                           MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
                           -1,
@@ -661,7 +665,8 @@ int main(int argc, char **argv)
     if (no_exec)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
-    munmap(insn_buffer, page_size);
+    munmap(insn_buffer, PAGE_SIZE);
+    munmap(null_pages, PAGE_SIZE*2);
     cs_close(&handle);
     free(log_path);
 
