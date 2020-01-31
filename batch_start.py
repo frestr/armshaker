@@ -253,6 +253,7 @@ def main(stdscr, args):
             # Wait a little if the status files haven't been created yet
             time.sleep(0.1)
         except KeyboardInterrupt:
+            quit_str = 'User abort'
             break
 
     curses.nocbreak()
