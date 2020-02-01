@@ -28,7 +28,7 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUS_UPDATE_RATE 0x200
+#define STATUS_UPDATE_RATE 0x2000
 
 // According to capstone+libopcodes (constrained unpredictable excluded)
 #define UNDEFINED_INSTRUCTIONS_TOTAL 2757385481
@@ -338,15 +338,21 @@ struct option long_options[] = {
 void print_help(char *cmd_name)
 {
     printf("Usage: %s [option(s)]\n", cmd_name);
-    printf("\nOptions:\n");
-    printf("\t-h, --help\t\tPrint help information\n");
-    printf("\t-s, --start <insn>\tStart of instruction search range (in hex) [default: 0x00000000]\n");
-    printf("\t-e, --end <insn>\tEnd of instruction search range, inclusive (in hex) [default: 0xffffffff]\n");
-    printf("\t-n, --no-exec\t\tCalculate the total amount of undefined instructions, without executing them\n");
-    printf("\t-d, --disable-null\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
-    printf("\t-l, --log-suffix\tAdd a suffix to the log and status file.\n");
-    printf("\t-q, --quiet\tDon't print the status line.\n");
-    printf("\t-c, --discreps\tLog disassembler discrepancies.\n");
+    printf("\n\
+Options:\n\
+        -h, --help              Print help information\n\
+        -s, --start <insn>      Start of instruction search range (in hex)\n\
+                                [default: 0x00000000]\n\
+        -e, --end <insn>        End of instruction search range, inclusive (in hex)\n\
+                                [default: 0xffffffff]\n\
+        -n, --no-exec           Calculate the total amount of undefined instructions,\n\
+                                without executing them\n\
+        -d, --disable-null      Disable null page allocation. This might lead to\n\
+                                segfaults for certain instructions.\n\
+        -l, --log-suffix        Add a suffix to the log and status file.\n\
+        -q, --quiet             Don't print the status line.\n\
+        -c, --discreps          Log disassembler discrepancies.\n"
+    );
 }
 
 int main(int argc, char **argv)
