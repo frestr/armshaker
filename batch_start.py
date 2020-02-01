@@ -169,7 +169,11 @@ def update_screen(stdscr, pad, statuses, extra_data):
 
 def start_procs(search_range, args):
     procs = []
-    proc_count = multiprocessing.cpu_count()
+    if (type(args.workers) == int  # Default val
+            or args.workers[0] <= 0):
+        proc_count = multiprocessing.cpu_count()
+    else:
+        proc_count = args.workers[0]
     proc_search_size = int((search_range[1] - search_range[0] + 1) / proc_count)
     for i in range(proc_count):
         insn_start = search_range[0] + proc_search_size * i
@@ -292,6 +296,11 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--discreps',
                         action='store_true',
                         help='Log disassembler discrepancies')
+    parser.add_argument('-w', '--workers',
+                        type=int, nargs=1,
+                        help='Number of worker processes',
+                        metavar='NUM', default=0)
+
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
