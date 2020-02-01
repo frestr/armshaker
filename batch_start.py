@@ -38,6 +38,15 @@ def get_status(proc_num):
     return status
 
 
+def update_statuses(procs, statuses):
+    # Read the statusfiles
+    for proc_num in range(len(procs)):
+        status = get_status(proc_num)
+        if status is not None:
+            statuses[proc_num] = status
+    return statuses
+
+
 def print_worker(stdscr, proc_num, status, global_y_offset):
     lines = []
     lines.append('insn:      {}'.format(status['curr_insn']))
@@ -143,12 +152,7 @@ def print_done(stdscr):
     stdscr.addstr(y_offset+4, x_offset, '╚═════════════╝')
 
 
-def update(stdscr, pad, procs, extra_data):
-    # Read the statusfiles
-    statuses = []
-    for proc_num in range(len(procs)):
-        statuses.append(get_status(proc_num))
-
+def update_screen(stdscr, pad, statuses, extra_data):
     # Sometimes reading the status files fails. In those cases, don't
     # update the values, as they will be incorrect
     height = print_summary(pad, statuses, extra_data, None in statuses)
@@ -216,10 +220,12 @@ def main(stdscr, args):
     }
 
     quit_str = 'Done'
+    statuses = [None] * len(procs)
 
     while True:
         try:
-            update(stdscr, pad, procs, extra_data)
+            update_statuses(procs, statuses)
+            update_screen(stdscr, pad, statuses, extra_data)
             if stdscr.getch() == ord('q'):
                 quit_str = 'User abort'
                 break
