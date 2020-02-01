@@ -331,7 +331,8 @@ struct option long_options[] = {
     {"no-exec",         no_argument,        NULL, 'n'},
     {"disable-null",    no_argument,        NULL, 'd'},
     {"log-suffix",      required_argument,  NULL, 'l'},
-    {"quiet",           required_argument,  NULL, 'q'}
+    {"quiet",           required_argument,  NULL, 'q'},
+    {"discreps",        no_argument,        NULL, 'c'}
 };
 
 void print_help(char *cmd_name)
@@ -345,6 +346,7 @@ void print_help(char *cmd_name)
     printf("\t-d, --disable-null\tDisable null page allocation. This might lead to segfaults for certain instructions.\n");
     printf("\t-l, --log-suffix\tAdd a suffix to the log and status file.\n");
     printf("\t-q, --quiet\tDon't print the status line.\n");
+    printf("\t-c, --discreps\tLog disassembler discrepancies.\n");
 }
 
 int main(int argc, char **argv)
@@ -354,11 +356,12 @@ int main(int argc, char **argv)
     bool no_exec = false;
     bool allocate_null_pages = true;
     bool quiet = false;
+    bool log_discreps = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:tdl:q", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:tdl:qc", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -391,6 +394,9 @@ int main(int argc, char **argv)
                 break;
             case 'q':
                 quiet = true;
+                break;
+            case 'c':
+                log_discreps = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -588,15 +594,16 @@ int main(int argc, char **argv)
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
             if (capstone_undefined || libopcodes_undefined) {
-                log_fp = fopen(log_path, "a");
+                if (log_discreps) {
+                        log_fp = fopen(log_path, "a");
 
-                if (log_fp == NULL) {
-                    printf("0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
-                } else {
-                    fprintf(log_fp, "0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
-                    fclose(log_fp);
+                        if (log_fp == NULL) {
+                            printf("0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                        } else {
+                            fprintf(log_fp, "0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                            fclose(log_fp);
+                        }
                 }
-
                 ++disas_discreps_found;
             }
 

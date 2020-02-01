@@ -167,7 +167,7 @@ def update_screen(stdscr, pad, statuses, extra_data):
     pad.refresh(0, 0, 0, 0, y_size-1, x_size-1)
 
 
-def start_procs(search_range, disable_null=False):
+def start_procs(search_range, args):
     procs = []
     proc_count = multiprocessing.cpu_count()
     proc_search_size = int((search_range[1] - search_range[0] + 1) / proc_count)
@@ -181,7 +181,8 @@ def start_procs(search_range, disable_null=False):
                '-l', str(i),
                '-s', hex(insn_start),
                '-e', hex(insn_end),
-               '-d' if disable_null else '',
+               '-d' if args.disable_null else '',
+               '-c' if args.discreps else '',
                '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
@@ -200,7 +201,7 @@ def exit_handler(procs):
 def main(stdscr, args):
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
-    procs = start_procs(search_range, args.disable_null)
+    procs = start_procs(search_range, args)
 
     curses.cbreak()
     curses.noecho()
@@ -288,6 +289,9 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--disable-null',
                         action='store_true',
                         help='Enable non-root execution by disabling null page allocation')
+    parser.add_argument('-c', '--discreps',
+                        action='store_true',
+                        help='Log disassembler discrepancies')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
