@@ -361,7 +361,7 @@ int main(int argc, char **argv)
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:tdl:qc", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:ndl:qc", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
