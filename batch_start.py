@@ -47,7 +47,7 @@ def update_statuses(procs, statuses):
     return statuses
 
 
-def print_worker(stdscr, proc_num, status, global_y_offset):
+def print_worker(pad, proc_num, status, global_y_offset):
     lines = []
     lines.append('insn:      {}'.format(status['curr_insn']))
     lines.append('cs_disas:  {}'.format(status['cs_disas']))
@@ -66,14 +66,14 @@ def print_worker(stdscr, proc_num, status, global_y_offset):
     x_offset = (proc_num % 2)*(WORKER_AREA_WIDTH+2) + 1
 
     header = '╔═ Worker {} '.format(proc_num).ljust(WORKER_AREA_WIDTH-1, '═') + '╗'
-    stdscr.addstr(y_offset, x_offset, header)
+    pad.addstr(y_offset, x_offset, header)
     for line_num in range(len(lines)):
-        stdscr.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
+        pad.addstr(y_offset+1+line_num, x_offset, '║ {} ║'.format(lines[line_num]))
     footer = '╚'.ljust(WORKER_AREA_WIDTH-1, '═') + '╝'
-    stdscr.addstr(y_offset+1+len(lines), x_offset, footer)
+    pad.addstr(y_offset+1+len(lines), x_offset, footer)
 
 
-def print_summary(stdscr, statuses, extra_data, just_height=False):
+def print_summary(pad, statuses, extra_data, just_height=False):
     sum_status = {
             'checked': 0,
             'skipped': 0,
@@ -126,33 +126,33 @@ def print_summary(stdscr, statuses, extra_data, just_height=False):
 
     if not just_height:
         header = '╔═ Summary '.ljust(max_line_length*2-3, '═') + '╗'
-        stdscr.addstr(y_offset, x_offset, header)
+        pad.addstr(y_offset, x_offset, header)
         # Add actual strings
         for line_num in range(len(lines)):
-            stdscr.addstr(y_offset+1+(line_num % max_height),
+            pad.addstr(y_offset+1+(line_num % max_height),
                           x_offset + (line_num // max_height)*max_line_length,
                           '  {}  '.format(lines[line_num]))
         # Add border
         for line_num in range(max_height):
-            stdscr.addstr(y_offset+1+line_num, x_offset, '║')
-            stdscr.addstr(y_offset+1+line_num, x_offset+max_line_length*2-3, '║')
+            pad.addstr(y_offset+1+line_num, x_offset, '║')
+            pad.addstr(y_offset+1+line_num, x_offset+max_line_length*2-3, '║')
         footer = '╚'.ljust(max_line_length*2-3, '═') + '╝'
-        stdscr.addstr(y_offset+1+max_height, x_offset, footer)
+        pad.addstr(y_offset+1+max_height, x_offset, footer)
 
     return max_height + 3
 
 
-def print_done(stdscr):
+def print_done(pad):
     y_offset = 15
     x_offset = WORKER_AREA_WIDTH - 5
-    stdscr.addstr(y_offset+0, x_offset, '╔═════════════╗')
-    stdscr.addstr(y_offset+1, x_offset, '║             ║')
-    stdscr.addstr(y_offset+2, x_offset, '║    Done!    ║')
-    stdscr.addstr(y_offset+3, x_offset, '║             ║')
-    stdscr.addstr(y_offset+4, x_offset, '╚═════════════╝')
+    pad.addstr(y_offset+0, x_offset, '╔═════════════╗')
+    pad.addstr(y_offset+1, x_offset, '║             ║')
+    pad.addstr(y_offset+2, x_offset, '║    Done!    ║')
+    pad.addstr(y_offset+3, x_offset, '║             ║')
+    pad.addstr(y_offset+4, x_offset, '╚═════════════╝')
 
 
-def update_screen(stdscr, pad, statuses, extra_data):
+def update_screen(pad, statuses, extra_data):
     # Sometimes reading the status files fails. In those cases, don't
     # update the values, as they will be incorrect
     height = print_summary(pad, statuses, extra_data, None in statuses)
@@ -162,9 +162,6 @@ def update_screen(stdscr, pad, statuses, extra_data):
         if status is None:
             continue
         print_worker(pad, proc_num, status, height)
-
-    y_size, x_size = stdscr.getmaxyx()
-    pad.refresh(0, 0, 0, 0, y_size-1, x_size-1)
 
 
 def start_procs(search_range, args):
@@ -202,6 +199,11 @@ def exit_handler(procs):
         proc.kill()
 
 
+def refresh_pad(stdscr, pad):
+    y_size, x_size = stdscr.getmaxyx()
+    pad.refresh(0, 0, 0, 0, y_size-1, x_size-1)
+
+
 def main(stdscr, args):
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
@@ -230,7 +232,8 @@ def main(stdscr, args):
     while True:
         try:
             update_statuses(procs, statuses)
-            update_screen(stdscr, pad, statuses, extra_data)
+            update_screen(pad, statuses, extra_data)
+            refresh_pad(stdscr, pad)
             if stdscr.getch() == ord('q'):
                 quit_str = 'User abort'
                 break
@@ -254,8 +257,10 @@ def main(stdscr, args):
                 # wait for any key before quitting
                 stdscr.nodelay(False)
                 pad.nodelay(False)
-                update(stdscr, pad, procs, extra_data)
-                print_done(stdscr)
+                update_statuses(procs, statuses)
+                update_screen(pad, statuses, extra_data)
+                print_done(pad)
+                refresh_pad(stdscr, pad)
                 stdscr.getch()
                 break
             else:
