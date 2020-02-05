@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-std=gnu11 -Wall -Wextra -Og -g
+CFLAGS=-march=armv8-a -std=gnu11 -Wall -Wextra -Og -g
 LDLIBS=-lcapstone -lopcodes
 
 SRCS=$(wildcard src/*.c)

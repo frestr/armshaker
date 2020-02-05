@@ -28,7 +28,7 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUS_UPDATE_RATE 0x2000
+#define STATUS_UPDATE_RATE 0x1000
 
 // According to capstone+libopcodes (constrained unpredictable excluded)
 #define UNDEFINED_INSTRUCTIONS_TOTAL 2757385481
@@ -40,6 +40,12 @@
 #define INSN_RANGE_MAX 0xffffffff
 
 #define PAGE_SIZE 4096
+
+#ifdef __aarch64__
+    #define CAPSTONE_ARCH CS_ARCH_ARM64
+#else
+    #define CAPSTONE_ARCH CS_ARCH_ARM
+#endif
 
 typedef struct {
     uint32_t curr_insn;
@@ -80,7 +86,11 @@ void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
         last_insn_illegal = 1;
 
     // Jump to the next instruction (i.e. skip the illegal insn)
+#ifdef __aarch64__
     uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+#else
+    uc->uc_mcontext.arm_pc = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+#endif
 }
 
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
@@ -103,6 +113,7 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
  */
 void execution_boilerplate(void)
 {
+#ifdef __aarch64__
     asm volatile(
             ".global boilerplate_start  \n"
             "boilerplate_start:         \n"
@@ -189,6 +200,44 @@ void execution_boilerplate(void)
             :
             : [reg_init] "n" (PAGE_SIZE)
             );
+#else
+    asm volatile(
+            ".global boilerplate_start  \n"
+            "boilerplate_start:         \n"
+
+            // Store all gregs
+            "push {r0-r10, lr}          \n"
+
+            // Reset the regs to make insn execution deterministic
+            // and avoid program corruption
+            "mov r0, %[reg_init]        \n"
+            "mov r1, %[reg_init]        \n"
+            "mov r2, %[reg_init]        \n"
+            "mov r3, %[reg_init]        \n"
+            "mov r4, %[reg_init]        \n"
+            "mov r5, %[reg_init]        \n"
+            "mov r6, %[reg_init]        \n"
+            "mov r7, %[reg_init]        \n"
+            "mov r8, %[reg_init]        \n"
+            "mov r9, %[reg_init]        \n"
+            "mov r10, %[reg_init]       \n"
+
+            ".global insn_location      \n"
+            "insn_location:             \n"
+
+            // This instruction will be replaced with the one to be tested
+            "nop                        \n"
+
+            // Restore all gregs
+            "pop {r0-r10, lr}           \n"
+
+            "bx lr                      \n"
+            ".global boilerplate_end    \n"
+            "boilerplate_end:           \n"
+            :
+            : [reg_init] "n" (PAGE_SIZE)
+            );
+#endif
 }
 
 uint64_t get_nano_timestamp(void) {
@@ -241,8 +290,13 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     // Set up the disassembler
     disassemble_info disasm_info = {};
     init_disassemble_info(&disasm_info, &ss, (fprintf_ftype) disas_sprintf);
+#ifdef __aarch64__
     disasm_info.arch = bfd_arch_aarch64;
     disasm_info.mach = bfd_mach_aarch64;
+#else
+    disasm_info.arch = bfd_arch_arm;
+    disasm_info.mach = bfd_mach_arm_8;
+#endif
     disasm_info.read_memory_func = buffer_read_memory;
     disasm_info.buffer = (uint8_t*)&insn;
     disasm_info.buffer_vma = 0;
@@ -250,7 +304,11 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     disassemble_init_for_target(&disasm_info);
 
     disassembler_ftype disasm;
+#ifdef __aarch64__
     disasm = disassembler(bfd_arch_aarch64, false, bfd_mach_aarch64, NULL);
+#else
+    disasm = disassembler(bfd_arch_arm, false, bfd_mach_arm_8, NULL);
+#endif
 
     // Actually do the disassembly
     size_t insn_size = disasm(0, &disasm_info);
@@ -373,14 +431,14 @@ int main(int argc, char **argv)
                 print_help(argv[0]);
                 return 1;
             case 's':
-                insn_range_start = strtol(optarg, &endptr, 16);
+                insn_range_start = strtoll(optarg, &endptr, 16);
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read instruction range start\n");
                     return 1;
                 }
                 break;
             case 'e':
-                insn_range_end = strtol(optarg, &endptr, 16);
+                insn_range_end = strtoll(optarg, &endptr, 16);
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read instruction range end\n");
                     return 1;
@@ -432,7 +490,7 @@ int main(int argc, char **argv)
 	csh handle;
 	cs_insn *capstone_insn;
 
-	if (cs_open(CS_ARCH_ARM64,
+	if (cs_open(CAPSTONE_ARCH,
                 CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN,
                 &handle) != CS_ERR_OK) {
         fprintf(stderr, "ERROR: Unable to load capstone\n");
@@ -440,8 +498,6 @@ int main(int argc, char **argv)
     }
 
     init_signal_handler(signal_handler);
-
-    /* page_size = sysconf(_SC_PAGE_SIZE); */
 
     // Allocate an executable page / memory region
     insn_buffer = mmap(NULL,
@@ -564,8 +620,12 @@ int main(int argc, char **argv)
                 print_statusline(&curr_status);
         }
 
+#ifdef __aarch64__
         bool libopcodes_undefined = (strstr(libopcodes_str, "undefined") != NULL
                                   || strstr(libopcodes_str, "NYI") != NULL);
+#else
+        bool libopcodes_undefined = strstr(libopcodes_str, "UNDEFINED") != NULL;
+#endif
 
         /*
          * TODO: Also check for (constrained) unpredictable instructions.
@@ -627,18 +687,25 @@ int main(int argc, char **argv)
         last_insn_illegal = 0;
 
         /*
-         * Invalidate insn_buffer (at the insn to be tested)
+         * invalidate insn_buffer (at the insn to be tested)
          * in the d- and icache and force the changes
-         * (Some instructions might be skipped otherwise.)
-         *      dc civac = clean and invalidate data cache at addr
-         *      ic ivau  = invalidate instruction cache at addr
-         *      dsb sy   = memory barrier
-         *      isb      = flush instruction pipeline
+         * (some instructions might be skipped otherwise.)
          */
         asm volatile(
+#ifdef __aarch64__
+                // clean and invalidate data cache line
                 "dc civac, %[insn_buffer]    \n"
+                // invalidate instruction cache line
                 "ic ivau, %[insn_buffer]     \n"
+#else
+                // clean and invalidate data cache line
+                "mcr p15, 0, %[insn_buffer], c7, c10, 1 \n"
+                // invalidate instruction cache line
+                "mcr p15, 0, %[insn_buffer], c7, c5, 0  \n"
+#endif
+                // memory barrier (data synchronization)
                 "dsb sy                      \n"
+                // flush instruction pipeline
                 "isb                         \n"
                 :
                 : [insn_buffer] "r" (insn_buffer + insn_offset*4)
@@ -679,7 +746,8 @@ int main(int argc, char **argv)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, PAGE_SIZE);
-    munmap(null_pages, PAGE_SIZE*2);
+    if (allocate_null_pages)
+        munmap(null_pages, PAGE_SIZE*2);
     cs_close(&handle);
     free(log_path);
 
