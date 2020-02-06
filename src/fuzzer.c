@@ -138,37 +138,37 @@ void execution_boilerplate(void)
 
             // Reset the regs to make insn execution deterministic
             // and avoid program corruption
-            "mov x0, #%[reg_init]       \n"
-            "mov x1, #%[reg_init]       \n"
-            "mov x2, #%[reg_init]       \n"
-            "mov x3, #%[reg_init]       \n"
-            "mov x4, #%[reg_init]       \n"
-            "mov x5, #%[reg_init]       \n"
-            "mov x6, #%[reg_init]       \n"
-            "mov x7, #%[reg_init]       \n"
-            "mov x8, #%[reg_init]       \n"
-            "mov x9, #%[reg_init]       \n"
-            "mov x10, #%[reg_init]      \n"
-            "mov x11, #%[reg_init]      \n"
-            "mov x12, #%[reg_init]      \n"
-            "mov x13, #%[reg_init]      \n"
-            "mov x14, #%[reg_init]      \n"
-            "mov x15, #%[reg_init]      \n"
-            "mov x16, #%[reg_init]      \n"
-            "mov x17, #%[reg_init]      \n"
-            "mov x18, #%[reg_init]      \n"
-            "mov x19, #%[reg_init]      \n"
-            "mov x20, #%[reg_init]      \n"
-            "mov x21, #%[reg_init]      \n"
-            "mov x22, #%[reg_init]      \n"
-            "mov x23, #%[reg_init]      \n"
-            "mov x24, #%[reg_init]      \n"
-            "mov x25, #%[reg_init]      \n"
-            "mov x26, #%[reg_init]      \n"
-            "mov x27, #%[reg_init]      \n"
-            "mov x28, #%[reg_init]      \n"
-            "mov x29, #%[reg_init]      \n"
-            "mov x30, #%[reg_init]      \n"
+            "mov x0, %[reg_init]        \n"
+            "mov x1, %[reg_init]        \n"
+            "mov x2, %[reg_init]        \n"
+            "mov x3, %[reg_init]        \n"
+            "mov x4, %[reg_init]        \n"
+            "mov x5, %[reg_init]        \n"
+            "mov x6, %[reg_init]        \n"
+            "mov x7, %[reg_init]        \n"
+            "mov x8, %[reg_init]        \n"
+            "mov x9, %[reg_init]        \n"
+            "mov x10, %[reg_init]       \n"
+            "mov x11, %[reg_init]       \n"
+            "mov x12, %[reg_init]       \n"
+            "mov x13, %[reg_init]       \n"
+            "mov x14, %[reg_init]       \n"
+            "mov x15, %[reg_init]       \n"
+            "mov x16, %[reg_init]       \n"
+            "mov x17, %[reg_init]       \n"
+            "mov x18, %[reg_init]       \n"
+            "mov x19, %[reg_init]       \n"
+            "mov x20, %[reg_init]       \n"
+            "mov x21, %[reg_init]       \n"
+            "mov x22, %[reg_init]       \n"
+            "mov x23, %[reg_init]       \n"
+            "mov x24, %[reg_init]       \n"
+            "mov x25, %[reg_init]       \n"
+            "mov x26, %[reg_init]       \n"
+            "mov x27, %[reg_init]       \n"
+            "mov x28, %[reg_init]       \n"
+            "mov x29, %[reg_init]       \n"
+            "mov x30, %[reg_init]       \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
@@ -687,29 +687,12 @@ int main(int argc, char **argv)
         last_insn_illegal = 0;
 
         /*
-         * invalidate insn_buffer (at the insn to be tested)
-         * in the d- and icache and force the changes
+         * Clear insn_buffer (at the insn to be tested)
+         * in the d- and icache
          * (some instructions might be skipped otherwise.)
          */
-        asm volatile(
-#ifdef __aarch64__
-                // clean and invalidate data cache line
-                "dc civac, %[insn_buffer]    \n"
-                // invalidate instruction cache line
-                "ic ivau, %[insn_buffer]     \n"
-#else
-                // clean and invalidate data cache line
-                "mcr p15, 0, %[insn_buffer], c7, c10, 1 \n"
-                // invalidate instruction cache line
-                "mcr p15, 0, %[insn_buffer], c7, c5, 0  \n"
-#endif
-                // memory barrier (data synchronization)
-                "dsb sy                      \n"
-                // flush instruction pipeline
-                "isb                         \n"
-                :
-                : [insn_buffer] "r" (insn_buffer + insn_offset*4)
-            );
+        __clear_cache(insn_buffer + insn_offset * 4,
+                      insn_buffer + insn_offset * 4 + sizeof(curr_insn));
 
         // Jump to the instruction to be tested (and execute it)
         execute_insn_buffer();
