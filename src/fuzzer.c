@@ -290,6 +290,7 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     // Set up the disassembler
     disassemble_info disasm_info = {};
     init_disassemble_info(&disasm_info, &ss, (fprintf_ftype) disas_sprintf);
+
 #ifdef __aarch64__
     disasm_info.arch = bfd_arch_aarch64;
     disasm_info.mach = bfd_mach_aarch64;
@@ -297,6 +298,7 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     disasm_info.arch = bfd_arch_arm;
     disasm_info.mach = bfd_mach_arm_8;
 #endif
+
     disasm_info.read_memory_func = buffer_read_memory;
     disasm_info.buffer = (uint8_t*)&insn;
     disasm_info.buffer_vma = 0;
@@ -304,11 +306,7 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     disassemble_init_for_target(&disasm_info);
 
     disassembler_ftype disasm;
-#ifdef __aarch64__
-    disasm = disassembler(bfd_arch_aarch64, false, bfd_mach_aarch64, NULL);
-#else
-    disasm = disassembler(bfd_arch_arm, false, bfd_mach_arm_8, NULL);
-#endif
+    disasm = disassembler(disasm_info.arch, false, disasm_info.mach, NULL);
 
     // Actually do the disassembly
     size_t insn_size = disasm(0, &disasm_info);
@@ -620,12 +618,9 @@ int main(int argc, char **argv)
                 print_statusline(&curr_status);
         }
 
-#ifdef __aarch64__
         bool libopcodes_undefined = (strstr(libopcodes_str, "undefined") != NULL
-                                  || strstr(libopcodes_str, "NYI") != NULL);
-#else
-        bool libopcodes_undefined = strstr(libopcodes_str, "UNDEFINED") != NULL;
-#endif
+                                  || strstr(libopcodes_str, "NYI") != NULL
+                                  || strstr(libopcodes_str, "UNDEFINED") != NULL);
 
         /*
          * TODO: Also check for (constrained) unpredictable instructions.
