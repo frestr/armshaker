@@ -23,7 +23,7 @@ def get_status(proc_num):
     status = {}
     for line in lines:
         try:
-            key, val = line.split(':')
+            key, val = line.split('|')
         except ValueError:
             print("ERROR: Ill-formatted statusfile")
             return None

@@ -355,14 +355,14 @@ int write_statusfile(char *filepath, search_status *status)
     }
 
     fprintf(fp,
-            "curr_insn:%08" PRIx32 "\n"
-            "cs_disas:%s\n"
-            "libopcodes_disas:%s\n"
-            "instructions_checked:%" PRIu64 "\n"
-            "instructions_skipped:%" PRIu64 "\n"
-            "hidden_instructions_found:%" PRIu64 "\n"
-            "disas_discrepancies:%" PRIu64 "\n"
-            "instructions_per_sec:%" PRIu64 "\n",
+            "curr_insn|%08" PRIx32 "\n"
+            "cs_disas|%s\n"
+            "libopcodes_disas|%s\n"
+            "instructions_checked|%" PRIu64 "\n"
+            "instructions_skipped|%" PRIu64 "\n"
+            "hidden_instructions_found|%" PRIu64 "\n"
+            "disas_discrepancies|%" PRIu64 "\n"
+            "instructions_per_sec|%" PRIu64 "\n",
             status->curr_insn,
             status->cs_disas,
             status->libopcodes_disas,
