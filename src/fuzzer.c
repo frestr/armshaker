@@ -30,12 +30,6 @@
 
 #define STATUS_UPDATE_RATE 0x1000
 
-// According to capstone+libopcodes (constrained unpredictable excluded)
-#define UNDEFINED_INSTRUCTIONS_TOTAL 2757385481
-
-// According to capstone
-/* #define UNDEFINED_INSTRUCTIONS_TOTAL 3004263502 */
-
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
 
