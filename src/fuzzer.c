@@ -99,7 +99,7 @@ void sigsegv_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
     if (executing_insn == 0) {
         // Something other than a hidden insn execution caused the segfault,
         // so quit
-        fprintf(stderr, "\nSegmentation fault");
+        fprintf(stderr, "Segmentation fault.");
         exit(1);
     }
 
@@ -159,7 +159,6 @@ void execution_boilerplate(void)
             "stp x26, x27, [sp, #-16]!  \n"
             "stp x28, x29, [sp, #-16]!  \n"
             "stp x30, xzr, [sp, #-16]!  \n"
-
 
             /*
              * Reset the regs to make insn execution deterministic
@@ -239,7 +238,7 @@ void execution_boilerplate(void)
             "boilerplate_start:         \n"
 
             // Store all gregs
-            "push {r0-r10, lr}          \n"
+            "push {r0-r12, lr}          \n"
 
             // Reset the regs to make insn execution deterministic
             // and avoid program corruption
@@ -254,6 +253,9 @@ void execution_boilerplate(void)
             "mov r8, %[reg_init]        \n"
             "mov r9, %[reg_init]        \n"
             "mov r10, %[reg_init]       \n"
+            "mov r11, %[reg_init]       \n"
+            "mov r12, %[reg_init]       \n"
+            "mov lr, %[reg_init]        \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
@@ -262,7 +264,7 @@ void execution_boilerplate(void)
             "nop                        \n"
 
             // Restore all gregs
-            "pop {r0-r10, lr}           \n"
+            "pop {r0-r12, lr}           \n"
 
             "bx lr                      \n"
             ".global boilerplate_end    \n"
