@@ -182,7 +182,6 @@ def start_procs(search_range, args):
                '-l', str(i),
                '-s', hex(insn_start),
                '-e', hex(insn_end),
-               '-d' if args.disable_null else '',
                '-c' if args.discreps else '',
                '-q']
         proc = subprocess.Popen(cmd,
@@ -295,9 +294,6 @@ if __name__ == '__main__':
                         type=hex_int, nargs=1,
                         help='search range end',
                         metavar='INSN', default=0xffffffff)
-    parser.add_argument('-d', '--disable-null',
-                        action='store_true',
-                        help='Enable non-root execution by disabling null page allocation')
     parser.add_argument('-c', '--discreps',
                         action='store_true',
                         help='Log disassembler discrepancies')

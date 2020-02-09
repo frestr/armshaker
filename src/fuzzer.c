@@ -53,12 +53,14 @@ typedef struct {
 } search_status;
 
 void *insn_buffer;
-void *null_pages;
 volatile sig_atomic_t last_insn_illegal = 0;
+volatile sig_atomic_t last_insn_segfault = 0;
+volatile sig_atomic_t executing_insn = 0;
 uint32_t insn_offset = 0;
 
-void signal_handler(int, siginfo_t*, void*);
-void init_signal_handler(void (*handler)(int, siginfo_t*, void*));
+void sigill_handler(int, siginfo_t*, void*);
+void sigsegv_handler(int, siginfo_t*, void*);
+void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
@@ -69,25 +71,53 @@ void print_help(char*);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
 
-void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
+void sigill_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
     // Suppress unused warning
     (void)sig_info;
 
     ucontext_t* uc = (ucontext_t*) uc_ptr;
 
-    if (sig_num == SIGILL)
-        last_insn_illegal = 1;
+    assert(sig_num == SIGILL);
+    last_insn_illegal = 1;
 
     // Jump to the next instruction (i.e. skip the illegal insn)
+    uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+
 #ifdef __aarch64__
-    uc->uc_mcontext.pc = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+    uc->uc_mcontext.pc = insn_skip;
 #else
-    uc->uc_mcontext.arm_pc = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+    uc->uc_mcontext.arm_pc = insn_skip;
 #endif
 }
 
-void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
+void sigsegv_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
+{
+    // Suppress unused warning
+    (void)sig_info;
+
+    if (executing_insn == 0) {
+        // Something other than a hidden insn execution caused the segfault,
+        // so quit
+        fprintf(stderr, "\nSegmentation fault");
+        exit(1);
+    }
+
+    ucontext_t* uc = (ucontext_t*) uc_ptr;
+
+    assert(sig_num == SIGSEGV);
+    last_insn_segfault = 1;
+
+    uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+
+#ifdef __aarch64__
+    uc->uc_mcontext.pc = insn_skip;
+#else
+    uc->uc_mcontext.arm_pc = insn_skip;
+#endif
+}
+
+void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int signum)
 {
     struct sigaction s;
 
@@ -96,7 +126,7 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*))
 
     sigfillset(&s.sa_mask);
 
-    sigaction(SIGILL,  &s, NULL);
+    sigaction(signum,  &s, NULL);
 }
 
 /*
@@ -130,8 +160,17 @@ void execution_boilerplate(void)
             "stp x28, x29, [sp, #-16]!  \n"
             "stp x30, xzr, [sp, #-16]!  \n"
 
-            // Reset the regs to make insn execution deterministic
-            // and avoid program corruption
+
+            /*
+             * Reset the regs to make insn execution deterministic
+             * and avoid program corruption.
+             *
+             * If I read Arm ARM correctly, the max offset for register loads are
+             * 12 bits, which equals one page (4096 bytes). Because of negative
+             * offsets, the mem acces range from 1 to 2*4096, if the regs are
+             * initalized to 4096. This makes it easier to distinguish segfaults
+             * caused by hidden instructions from other segfaults.
+             */
             "mov x0, %[reg_init]        \n"
             "mov x1, %[reg_init]        \n"
             "mov x2, %[reg_init]        \n"
@@ -379,7 +418,6 @@ struct option long_options[] = {
     {"start",           required_argument,  NULL, 's'},
     {"end",             required_argument,  NULL, 'e'},
     {"no-exec",         no_argument,        NULL, 'n'},
-    {"disable-null",    no_argument,        NULL, 'd'},
     {"log-suffix",      required_argument,  NULL, 'l'},
     {"quiet",           required_argument,  NULL, 'q'},
     {"discreps",        no_argument,        NULL, 'c'}
@@ -397,8 +435,6 @@ Options:\n\
                                 [default: 0xffffffff]\n\
         -n, --no-exec           Calculate the total amount of undefined instructions,\n\
                                 without executing them\n\
-        -d, --disable-null      Disable null page allocation. This might lead to\n\
-                                segfaults for certain instructions.\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
         -q, --quiet             Don't print the status line.\n\
         -c, --discreps          Log disassembler discrepancies.\n"
@@ -410,14 +446,13 @@ int main(int argc, char **argv)
     uint32_t insn_range_start = INSN_RANGE_MIN;
     uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
     bool no_exec = false;
-    bool allocate_null_pages = true;
     bool quiet = false;
     bool log_discreps = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:ndl:qc", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qc", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -438,9 +473,6 @@ int main(int argc, char **argv)
                 break;
             case 'n':
                 no_exec = true;
-                break;
-            case 'd':
-                allocate_null_pages = false;
                 break;
             case 'l':
                 if (asprintf(&file_suffix, "%s", optarg) == -1) {
@@ -489,7 +521,8 @@ int main(int argc, char **argv)
 		return 1;
     }
 
-    init_signal_handler(signal_handler);
+    init_signal_handler(sigill_handler, SIGILL);
+    init_signal_handler(sigsegv_handler, SIGSEGV);
 
     // Allocate an executable page / memory region
     insn_buffer = mmap(NULL,
@@ -514,29 +547,6 @@ int main(int argc, char **argv)
 
     // Jumps to the instruction buffer
     void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
-
-    if (allocate_null_pages) {
-        /*
-         * Allocate two pages starting at address 0.
-         * This is to prevent segfaults when running insns like [x0] when x0 is 0.
-         *
-         * If I read Arm ARM correctly, the max offset for register loads are
-         * 12 bits, so one page (4096 bytes) should be enough. The reason for
-         * allocating two pages is to allow for negative address offsets.
-         */
-        null_pages = mmap(0,
-                          PAGE_SIZE * 2,
-                          PROT_READ | PROT_WRITE,
-                          MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
-                          -1,
-                          0);
-
-        if (null_pages == MAP_FAILED) {
-            perror("null_pages mmap failed (no root?)");
-            printf("If you really want to run without allocating null pages, run with -d\n");
-            return 1;
-        }
-    }
 
     struct stat st = {0};
 
@@ -674,6 +684,7 @@ int main(int argc, char **argv)
         ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
 
         last_insn_illegal = 0;
+        last_insn_segfault = 0;
 
         /*
          * Clear insn_buffer (at the insn to be tested)
@@ -683,16 +694,22 @@ int main(int argc, char **argv)
         __clear_cache(insn_buffer + insn_offset * 4,
                       insn_buffer + insn_offset * 4 + sizeof(curr_insn));
 
+        executing_insn = 1;
+
         // Jump to the instruction to be tested (and execute it)
         execute_insn_buffer();
+
+        executing_insn = 0;
 
         if (!last_insn_illegal) {
             log_fp = fopen(log_path, "a");
 
             if (log_fp == NULL) {
-                printf("0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
+                printf("0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
+                       curr_insn, last_insn_segfault ? "yes" : "no");
             } else {
-                fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction!\n", curr_insn);
+                fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
+                        curr_insn, last_insn_segfault ? "yes" : "no");
                 fclose(log_fp);
             }
 
@@ -718,8 +735,6 @@ int main(int argc, char **argv)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, PAGE_SIZE);
-    if (allocate_null_pages)
-        munmap(null_pages, PAGE_SIZE*2);
     cs_close(&handle);
     free(log_path);
 
