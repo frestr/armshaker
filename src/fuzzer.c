@@ -592,7 +592,7 @@ int main(int argc, char **argv)
         }
 
         // Now check what libopcodes thinks
-        char libopcodes_str[265] = {0};
+        char libopcodes_str[256] = {0};
         int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, sizeof(libopcodes_str));
         if (libopcodes_ret != 0) {
             fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
