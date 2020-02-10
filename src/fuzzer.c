@@ -698,8 +698,6 @@ int main(int argc, char **argv)
             else
                 ++instructions_skipped;
 
-            if (capstone_count > 0)
-
             continue;
         }
 
