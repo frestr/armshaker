@@ -47,6 +47,7 @@ typedef struct {
     char libopcodes_disas[256];
     uint64_t instructions_checked;
     uint64_t instructions_skipped;
+    uint64_t instructions_filtered;
     uint64_t hidden_instructions_found;
     uint64_t disas_discrepancies;
     uint64_t instructions_per_sec;
@@ -65,6 +66,7 @@ void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 int libopcodes_disassemble(uint32_t, char*, size_t);
+bool filter_instruction(uint32_t);
 void print_statusline(search_status*);
 int write_statusfile(char*, search_status*);
 void print_help(char*);
@@ -356,17 +358,66 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     return 0;
 }
 
+/*
+ * Mostly taken from binutils/opcodes/aarch64-opc.c
+ * In essence, this checks whether the ldpsw verifier in libopcodes
+ * would (incorrectly) mark the instruction as undefined or not.
+ */
+bool is_unpredictable_ldpsw(uint32_t insn)
+{
+#define BIT(INSN,BT)     (((INSN) >> (BT)) & 1)
+#define BITS(INSN,HI,LO) (((INSN) >> (LO)) & ((1 << (((HI) - (LO)) + 1)) - 1))
+
+    // Is an LDPSW insn?
+    if ((insn & 0xfec00000) != 0x68c00000 && (insn & 0xffc00000) != 0x69400000) {
+        return false;
+    }
+
+    // Is it unpredictable?
+    uint32_t t = BITS(insn, 4, 0);
+    uint32_t n = BITS(insn, 9, 5);
+    uint32_t t2 = BITS(insn, 14, 10);
+
+    if (BIT(insn, 23)) {
+        // Writeback
+        if ((t == n || t2 == n) && n != 31) {
+            return true;
+        }
+    }
+
+    if (BIT(insn, 22)) {
+        // Load
+        if (t == t2) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool filter_instruction(uint32_t insn)
+{
+#ifdef __aarch64__
+    if (is_unpredictable_ldpsw(insn))
+        return true;
+#else
+#endif
+    return false;
+}
+
 void print_statusline(search_status *status)
 {
     printf("\rinsn: 0x%08" PRIx32 ", "
            "checked: %" PRIu64 ", "
            "skipped: %" PRIu64 ", "
+           "filtered: %" PRIu64 ", "
            "hidden: %" PRIu64 ", "
            "discreps: %" PRIu64 ", "
            "ips: %" PRIu64 "   ",
            status->curr_insn,
            status->instructions_checked,
            status->instructions_skipped,
+           status->instructions_filtered,
            status->hidden_instructions_found,
            status->disas_discrepancies,
            status->instructions_per_sec
@@ -393,6 +444,7 @@ int write_statusfile(char *filepath, search_status *status)
             "libopcodes_disas:%s\n"
             "instructions_checked:%" PRIu64 "\n"
             "instructions_skipped:%" PRIu64 "\n"
+            "instructions_filtered:%" PRIu64 "\n"
             "hidden_instructions_found:%" PRIu64 "\n"
             "disas_discrepancies:%" PRIu64 "\n"
             "instructions_per_sec:%" PRIu64 "\n",
@@ -401,6 +453,7 @@ int write_statusfile(char *filepath, search_status *status)
             status->libopcodes_disas,
             status->instructions_checked,
             status->instructions_skipped,
+            status->instructions_filtered,
             status->hidden_instructions_found,
             status->disas_discrepancies,
             status->instructions_per_sec
@@ -570,6 +623,7 @@ int main(int argc, char **argv)
 
     uint64_t instructions_checked = 0;
     uint64_t instructions_skipped = 0;
+    uint64_t instructions_filtered = 0;
     uint64_t hidden_instructions_found = 0;
     uint64_t disas_discreps_found = 0;
     uint64_t last_timestamp = get_nano_timestamp();
@@ -587,6 +641,7 @@ int main(int argc, char **argv)
             snprintf(cs_str,
                      sizeof(cs_str),
                      "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
+            cs_free(capstone_insn, capstone_count);
         } else {
             strcpy(cs_str, "invalid assembly code");
         }
@@ -608,6 +663,7 @@ int main(int argc, char **argv)
                     sizeof(curr_status.libopcodes_disas));
             curr_status.instructions_checked = instructions_checked;
             curr_status.instructions_skipped = instructions_skipped;
+            curr_status.instructions_filtered = instructions_filtered;
             curr_status.disas_discrepancies = disas_discreps_found;
             curr_status.hidden_instructions_found = hidden_instructions_found;
 
@@ -641,8 +697,9 @@ int main(int argc, char **argv)
                 ++instructions_checked;
             else
                 ++instructions_skipped;
+
             if (capstone_count > 0)
-                cs_free(capstone_insn, capstone_count);
+
             continue;
         }
 
@@ -674,10 +731,12 @@ int main(int argc, char **argv)
                 ++disas_discreps_found;
             }
 
-            if (capstone_count > 0)
-                cs_free(capstone_insn, capstone_count);
-
             ++instructions_skipped;
+            continue;
+        }
+
+        if (filter_instruction(curr_insn)) {
+            ++instructions_filtered;
             continue;
         }
 
@@ -724,6 +783,7 @@ int main(int argc, char **argv)
     // Print the statusline one last time to capture the result of the last insn
     curr_status.instructions_checked = instructions_checked;
     curr_status.instructions_skipped = instructions_skipped;
+    curr_status.instructions_filtered = instructions_filtered;
     curr_status.hidden_instructions_found = hidden_instructions_found;
     curr_status.disas_discrepancies = disas_discreps_found;
 

@@ -8,6 +8,7 @@ import sys
 import argparse
 import fcntl
 import time
+import math
 
 WORKER_AREA_WIDTH = 45
 
@@ -30,7 +31,7 @@ def get_status(proc_num):
         status[key] = val.replace('\t', ' ').strip()
 
     # TODO: Remove nasty hardcode
-    if len(status) != 8:
+    if len(status) != 9:
         # Sometimes we read the statusfile while it's being written to.
         # Ideally we should have a lock or something, but this works for now...
         return None
@@ -54,6 +55,7 @@ def print_worker(pad, proc_num, status, global_y_offset):
     lines.append('opc_disas: {}'.format(status['libopcodes_disas']))
     lines.append('checked:   {:,}'.format(int(status['instructions_checked'])))
     lines.append('skipped:   {:,}'.format(int(status['instructions_skipped'])))
+    lines.append('filtered:  {:,}'.format(int(status['instructions_filtered'])))
     lines.append('hidden:    {:,}'.format(int(status['hidden_instructions_found'])))
     lines.append('discreps:  {:,}'.format(int(status['disas_discrepancies'])))
     lines.append('ips:       {:,}'.format(int(status['instructions_per_sec'])))
@@ -62,7 +64,7 @@ def print_worker(pad, proc_num, status, global_y_offset):
     for line_num in range(len(lines)):
         lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
 
-    y_offset = (11 if proc_num > 1 else 1) + global_y_offset
+    y_offset = (3+len(lines) if proc_num > 1 else 1) + global_y_offset
     x_offset = (proc_num % 2)*(WORKER_AREA_WIDTH+2) + 1
 
     header = '╔═ Worker {} '.format(proc_num).ljust(WORKER_AREA_WIDTH-1, '═') + '╗'
@@ -77,6 +79,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
     sum_status = {
             'checked': 0,
             'skipped': 0,
+            'filtered': 0,
             'hidden': 0,
             'ips': 0,
             'discreps': 0,
@@ -88,12 +91,14 @@ def print_summary(pad, statuses, extra_data, just_height=False):
             continue
         sum_status['checked'] += int(status['instructions_checked'])
         sum_status['skipped'] += int(status['instructions_skipped'])
+        sum_status['filtered'] += int(status['instructions_filtered'])
         sum_status['hidden'] += int(status['hidden_instructions_found'])
         sum_status['ips'] += int(status['instructions_per_sec'])
         sum_status['discreps'] += int(status['disas_discrepancies'])
 
         sum_status['insns_so_far'] += (int(status['instructions_checked'])
                                      + int(status['instructions_skipped'])
+                                     + int(status['instructions_filtered'])
                                      + int(status['hidden_instructions_found']))
 
     total_insns = extra_data['search_range'][1] - extra_data['search_range'][0] + 1
@@ -108,6 +113,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
     lines = []
     lines.append('checked:   {:,}'.format(int(sum_status['checked'])))
     lines.append('skipped:   {:,}'.format(int(sum_status['skipped'])))
+    lines.append('filtered:  {:,}'.format(int(sum_status['filtered'])))
     lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
     lines.append('discreps:  {:,}'.format(int(sum_status['discreps'])))
     lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
@@ -116,7 +122,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
     lines.append('eta:       {:.1f}hrs'.format(eta_hrs))
 
     max_line_length = (WORKER_AREA_WIDTH) + 2
-    max_height = 4
+    max_height = math.ceil(len(lines) / 2)
 
     for line_num in range(len(lines)):
         lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
