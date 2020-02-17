@@ -85,19 +85,9 @@ typedef struct {
 } search_status;
 
 typedef struct {
-#ifdef __aarch64__
-    uint64_t uregs_before[UREG_COUNT];
-    uint64_t uregs_after[UREG_COUNT];
-    uint64_t sp_before;
-    uint64_t sp_after;
-    uint64_t pc_before;
-    uint64_t pc_after;
-    uint64_t pstate_before;
-    uint64_t pstate_after;
-#else
-    uint32_t uregs_before[UREG_COUNT];
-    uint32_t uregs_after[UREG_COUNT];
-#endif
+    struct USER_REGS_TYPE regs_before;
+    struct USER_REGS_TYPE regs_after;
+
     uint32_t insn;
     uint32_t signal;
     bool died;
@@ -544,21 +534,18 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
         perror("getregs failed");
     }
 
+#ifdef __aarch64__
     static unsigned long long insn_loc = 0;
     static unsigned long long sp_loc = 0;
-
-    unsigned long long *sp_reg;
-    unsigned long long *pc_reg;
-    unsigned long long *regs_ptr;
-
-#ifdef __aarch64__
-    sp_reg = &regs.sp;
-    pc_reg = &regs.pc;
-    regs_ptr = regs.regs;
+    unsigned long long *sp_reg = &regs.sp;
+    unsigned long long *pc_reg = &regs.pc;
+    unsigned long long *regs_ptr = regs.regs;
 #else
-    sp_reg = &regs.regs[ARM_sp];
-    pc_reg = &regs.regs[ARM_pc];
-    regs_ptr = regs.regs;
+    static unsigned long insn_loc = 0;
+    static unsigned long sp_loc = 0;
+    unsigned long *sp_reg = &regs.uregs[ARM_sp];
+    unsigned long *pc_reg = &regs.uregs[ARM_pc];
+    unsigned long *regs_ptr = regs.uregs;
 #endif
 
     if (insn_loc == 0)
@@ -568,8 +555,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
         sp_loc = *sp_reg;
 
     if (ptrace(PTRACE_POKETEXT, slave_pid, insn_loc, insn) == -1) {
-        printf("poke failed for insn %08x at addr %llx\n", insn, insn_loc);
-        perror("error");
+        perror("poketext failed");
     }
     result->insn = insn;
 
@@ -577,14 +563,16 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
     *sp_reg = sp_loc;
     *pc_reg = insn_loc;
-    /* regs.uregs[ARM_cpsr] = 0x10;  // user mode */
+#ifdef __aarch64__
+    // Set pstate
+#else
+    regs.uregs[ARM_cpsr] = 0x10;  // user mode
+#endif
     if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
         perror("setregs failed");
     }
 
-    memcpy(result->uregs_before, regs_ptr, UREG_COUNT * sizeof(regs_ptr[0]));
-    result->sp_before = *sp_reg;
-    result->pc_before = *pc_reg;
+    memcpy(&result->regs_before, &regs, sizeof(regs));
 
     // Execute the instruction
     ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
@@ -594,9 +582,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
         perror("getregs2 failed");
     }
-    memcpy(result->uregs_after, regs_ptr, UREG_COUNT * sizeof(regs_ptr[0]));
-    result->sp_after = *sp_reg;
-    result->pc_after = *pc_reg;
+    memcpy(&result->regs_after, &regs, sizeof(regs));
 
     siginfo_t siginfo;
     if (ptrace(PTRACE_GETSIGINFO, slave_pid, NULL, &siginfo) == -1) {
@@ -644,12 +630,12 @@ void print_execution_result(execution_result *result)
 {
 #ifdef __aarch64__
         printf("\n"
-               "r0: %016" PRIx64 "\t%016" PRIx64 "\n"
-               "r1: %016" PRIx64 "\t%016" PRIx64 "\n"
-               "r2: %016" PRIx64 "\t%016" PRIx64 "\n"
-               "sp: %016" PRIx64 "\t%016" PRIx64 "\n"
-               "pc: %016" PRIx64 "\t%016" PRIx64 "\n"
-               "pstate: %016" PRIx64 "\t%016" PRIx64 "\n",
+               "r0: %016llx\t%016llx\n"
+               "r1: %016llx\t%016llx\n"
+               "r2: %016llx\t%016llx\n"
+               "sp: %016llx\t%016llx\n"
+               "pc: %016llx\t%016llx\n"
+               "pstate: %016llx\t%016llx\n",
                result->uregs_before[0], result->uregs_after[0],
                result->uregs_before[1], result->uregs_after[1],
                result->uregs_before[2], result->uregs_after[2],
@@ -659,42 +645,42 @@ void print_execution_result(execution_result *result)
         printf("signal: %d\n", result->signal);
 #else
         printf("\n"
-               "r0: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r1: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r2: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r3: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r4: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r5: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r6: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r7: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r8: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r9: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "r10:%08" PRIx32 "\t%08" PRIx32 "\n"
-               "fp: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "ip: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "sp: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "lr: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "pc: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "cpsr: %08" PRIx32 "\t%08" PRIx32 "\n"
-               "orig_r0: %08" PRIx32 "\t%08" PRIx32 "\n",
-               result->uregs_before[0], result->uregs_after[0],
-               result->uregs_before[1], result->uregs_after[1],
-               result->uregs_before[2], result->uregs_after[2],
-               result->uregs_before[3], result->uregs_after[3],
-               result->uregs_before[4], result->uregs_after[4],
-               result->uregs_before[5], result->uregs_after[5],
-               result->uregs_before[6], result->uregs_after[6],
-               result->uregs_before[7], result->uregs_after[7],
-               result->uregs_before[8], result->uregs_after[8],
-               result->uregs_before[9], result->uregs_after[9],
-               result->uregs_before[10], result->uregs_after[10],
-               result->uregs_before[11], result->uregs_after[11],
-               result->uregs_before[12], result->uregs_after[12],
-               result->uregs_before[13], result->uregs_after[13],
-               result->uregs_before[14], result->uregs_after[14],
-               result->uregs_before[15], result->uregs_after[15],
-               result->uregs_before[16], result->uregs_after[16],
-               result->uregs_before[17], result->uregs_after[17]);
+               "r0: %08lx\t%08lx\n"
+               "r1: %08lx\t%08lx\n"
+               "r2: %08lx\t%08lx\n"
+               "r3: %08lx\t%08lx\n"
+               "r4: %08lx\t%08lx\n"
+               "r5: %08lx\t%08lx\n"
+               "r6: %08lx\t%08lx\n"
+               "r7: %08lx\t%08lx\n"
+               "r8: %08lx\t%08lx\n"
+               "r9: %08lx\t%08lx\n"
+               "r10:%08lx\t%08lx\n"
+               "fp: %08lx\t%08lx\n"
+               "ip: %08lx\t%08lx\n"
+               "sp: %08lx\t%08lx\n"
+               "lr: %08lx\t%08lx\n"
+               "pc: %08lx\t%08lx\n"
+               "cpsr: %08lx\t%08lx\n"
+               "orig_r0: %08lx\t%08lx\n",
+               result->regs_before.uregs[0], result->regs_after.uregs[0],
+               result->regs_before.uregs[1], result->regs_after.uregs[1],
+               result->regs_before.uregs[2], result->regs_after.uregs[2],
+               result->regs_before.uregs[3], result->regs_after.uregs[3],
+               result->regs_before.uregs[4], result->regs_after.uregs[4],
+               result->regs_before.uregs[5], result->regs_after.uregs[5],
+               result->regs_before.uregs[6], result->regs_after.uregs[6],
+               result->regs_before.uregs[7], result->regs_after.uregs[7],
+               result->regs_before.uregs[8], result->regs_after.uregs[8],
+               result->regs_before.uregs[9], result->regs_after.uregs[9],
+               result->regs_before.uregs[10], result->regs_after.uregs[10],
+               result->regs_before.uregs[11], result->regs_after.uregs[11],
+               result->regs_before.uregs[12], result->regs_after.uregs[12],
+               result->regs_before.uregs[13], result->regs_after.uregs[13],
+               result->regs_before.uregs[14], result->regs_after.uregs[14],
+               result->regs_before.uregs[15], result->regs_after.uregs[15],
+               result->regs_before.uregs[16], result->regs_after.uregs[16],
+               result->regs_before.uregs[17], result->regs_after.uregs[17]);
         printf("signal: %d\n", result->signal);
 #endif
 }
@@ -982,7 +968,7 @@ int main(int argc, char **argv)
 
             last_insn_illegal = (result.signal == SIGILL);
             last_insn_segfault = (result.signal == SIGSEGV);
-            /* print_execution_result(&result); */
+            print_execution_result(&result);
         } else {
             // Update the first instruction in the instruction buffer
             /* *((uint32_t*)insn_buffer) = curr_insn; */
