@@ -578,9 +578,17 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
     waitpid(slave_pid, &status, 0);
 
+    if (WIFEXITED(status)) {
+        // TODO: Refork slave if it died
+        result->died = true;
+        return;
+    }
+
+    result->died = false;
+
     // Store results
     if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
-        perror("getregs2 failed");
+        perror("getregs failed");
     }
     memcpy(&result->regs_after, &regs, sizeof(regs));
 
@@ -592,8 +600,6 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     int signo = siginfo.si_signo;
     result->signal = (signo == SIGTRAP) ? 0 : signo;
 
-    // TODO: Need to check if the slave died, and restart it if so
-    result->died = false;
 
     // Fix the pc if the exception prevented the pc from advancing
     if (*pc_reg == insn_loc) {
@@ -604,25 +610,10 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
         }
         *pc_reg = insn_loc - 4;
         if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
-            perror("setregs1 failed");
+            perror("setregs failed");
         }
         ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
         waitpid(slave_pid, &status, 0);
-    } else {
-        /* ptrace(PTRACE_DETACH, slave_pid, NULL, NULL); */
-        /* if (kill(slave_pid, SIGKILL) == -1) { */
-        /*     fprintf(stderr, "worker %d failed to kill slave %d", worker_pid, slave_pid); */
-        /*     perror("errno:"); */
-        /* } */
-        /* /1* printf("worker %d killed slave %d\n", worker_pid, slave_pid); *1/ */
-        /* slave_pid = fork(); */
-        /* if (slave_pid == 0) { */
-        /*     ptrace(PTRACE_TRACEME, 0, NULL, NULL); */
-        /*     execv("slave", NULL); */
-        /* } else { */
-        /*     waitpid(slave_pid, &status, 0); */
-        /*     /1* printf("worker %d started new slave %d\n", worker_pid, slave_pid); *1/ */
-        /* } */
     }
 }
 
@@ -965,6 +956,11 @@ int main(int argc, char **argv)
         if (use_ptrace) {
             execution_result result = {0};
             execute_insn_slave(&slave_pid, curr_insn, &result);
+
+            if (result.died) {
+                fprintf(stderr, "slave died. quitting...\n");
+                break;
+            }
 
             last_insn_illegal = (result.signal == SIGILL);
             last_insn_segfault = (result.signal == SIGSEGV);
