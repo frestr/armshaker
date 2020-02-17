@@ -471,21 +471,16 @@ int write_statusfile(char *filepath, search_status *status)
 
 void slave_loop(void)
 {
+    asm volatile(
+            "loop:      \n"
 #ifdef __aarch64__
-    asm volatile(
-            "loop:      \n"
             "   brk #0  \n"
-            "   nop     \n"
-            "   b loop  \n"
-            );
 #else
-    asm volatile(
-            "loop:      \n"
             "   bkpt    \n"
+#endif
             "   nop     \n"
             "   b loop  \n"
             );
-#endif
 
 }
 
@@ -554,9 +549,23 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     if (sp_loc == 0)
         sp_loc = *sp_reg;
 
-    if (ptrace(PTRACE_POKETEXT, slave_pid, insn_loc, insn) == -1) {
+#ifdef __aarch64__
+    /*
+     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytesin AArch64.
+     * Since every instruction is 4 bytes, this will result in the instruction
+     * after being overwritten. We therefore need to combine the two into a
+     * single word before writing.
+     */
+    uint32_t next_insn = (uint32_t)ptrace(PTRACE_PEEKTEXT, slave_pid, insn_loc+4, 0);
+    uint64_t insn_word = insn | ((uint64_t)next_insn << 32);
+#else
+    uint32_t insn_word = insn;
+#endif
+
+    if (ptrace(PTRACE_POKETEXT, slave_pid, insn_loc, insn_word) == -1) {
         perror("poketext failed");
     }
+
     result->insn = insn;
 
     // Reset all regs
@@ -564,7 +573,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     *sp_reg = sp_loc;
     *pc_reg = insn_loc;
 #ifdef __aarch64__
-    // Set pstate
+    regs.pstate = 0;
 #else
     regs.uregs[ARM_cpsr] = 0x10;  // user mode
 #endif
@@ -742,7 +751,8 @@ struct option long_options[] = {
     {"log-suffix",      required_argument,  NULL, 'l'},
     {"quiet",           required_argument,  NULL, 'q'},
     {"discreps",        no_argument,        NULL, 'c'},
-    {"ptrace",          no_argument,        NULL, 'p'}
+    {"ptrace",          no_argument,        NULL, 'p'},
+    {"exec-all",        no_argument,        NULL, 'x'}
 };
 
 void print_help(char *cmd_name)
@@ -760,7 +770,8 @@ Options:\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
         -q, --quiet             Don't print the status line.\n\
         -c, --discreps          Log disassembler discrepancies.\n\
-        -p, --ptrace            Execute instructions on a separate process using ptrace.\n"
+        -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
+        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n"
     );
 }
 
@@ -772,11 +783,12 @@ int main(int argc, char **argv)
     bool quiet = false;
     bool log_discreps = false;
     bool use_ptrace = false;
+    bool exec_all = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcp", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpx", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -812,6 +824,9 @@ int main(int argc, char **argv)
                 break;
             case 'p':
                 use_ptrace = true;
+                break;
+            case 'x':
+                exec_all = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -987,7 +1002,7 @@ int main(int argc, char **argv)
          * other issues, so better use both. libopcodes is a bit slower, but
          * actually executing the insns takes so long anyway.
          */
-        if (!capstone_undefined || !libopcodes_undefined) {
+        if ((!capstone_undefined || !libopcodes_undefined) && !exec_all) {
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
             if (capstone_undefined || libopcodes_undefined) {
@@ -1022,7 +1037,7 @@ int main(int argc, char **argv)
 
             last_insn_illegal = (result.signal == SIGILL);
             last_insn_segfault = (result.signal == SIGSEGV);
-            /* print_execution_result(&result); */
+            print_execution_result(&result);
         } else {
             // Update the first instruction in the instruction buffer
             /* *((uint32_t*)insn_buffer) = curr_insn; */
