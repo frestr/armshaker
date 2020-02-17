@@ -636,12 +636,12 @@ void print_execution_result(execution_result *result)
                "sp: %016llx\t%016llx\n"
                "pc: %016llx\t%016llx\n"
                "pstate: %016llx\t%016llx\n",
-               result->uregs_before[0], result->uregs_after[0],
-               result->uregs_before[1], result->uregs_after[1],
-               result->uregs_before[2], result->uregs_after[2],
-               result->sp_before, result->sp_after,
-               result->pc_before, result->pc_after,
-               result->pstate_before, result->pstate_after);
+               result->regs_before.regs[0], result->regs_after.regs[0],
+               result->regs_before.regs[1], result->regs_after.regs[1],
+               result->regs_before.regs[2], result->regs_after.regs[2],
+               result->regs_before.sp, result->regs_after.sp,
+               result->regs_before.pc, result->regs_after.pc,
+               result->regs_before.pstate, result->regs_before.pstate);
         printf("signal: %d\n", result->signal);
 #else
         printf("\n"
@@ -968,7 +968,7 @@ int main(int argc, char **argv)
 
             last_insn_illegal = (result.signal == SIGILL);
             last_insn_segfault = (result.signal == SIGSEGV);
-            print_execution_result(&result);
+            /* print_execution_result(&result); */
         } else {
             // Update the first instruction in the instruction buffer
             /* *((uint32_t*)insn_buffer) = curr_insn; */
