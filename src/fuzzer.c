@@ -305,6 +305,8 @@ void execution_boilerplate(void)
             "mov r11, %[reg_init]       \n"
             "mov r12, %[reg_init]       \n"
             "mov lr, %[reg_init]        \n"
+            // Setting the sp to 0 seems to mess up the
+            // signal handling
             /* "mov sp, %[reg_init]        \n" */
             "msr cpsr_cxsf, #0x10            \n"
 
@@ -531,23 +533,16 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
 
 #ifdef __aarch64__
     static unsigned long long insn_loc = 0;
-    static unsigned long long sp_loc = 0;
-    unsigned long long *sp_reg = &regs.sp;
     unsigned long long *pc_reg = &regs.pc;
     unsigned long long *regs_ptr = regs.regs;
 #else
     static unsigned long insn_loc = 0;
-    static unsigned long sp_loc = 0;
-    unsigned long *sp_reg = &regs.uregs[ARM_sp];
     unsigned long *pc_reg = &regs.uregs[ARM_pc];
     unsigned long *regs_ptr = regs.uregs;
 #endif
 
     if (insn_loc == 0)
         insn_loc = *pc_reg + 4;
-
-    if (sp_loc == 0)
-        sp_loc = *sp_reg;
 
 #ifdef __aarch64__
     /*
@@ -570,7 +565,6 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
 
     // Reset all regs
     memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
-    /* *sp_reg = sp_loc; */
     *pc_reg = insn_loc;
 #ifdef __aarch64__
     regs.pstate = 0;
