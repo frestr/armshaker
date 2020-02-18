@@ -745,7 +745,8 @@ struct option long_options[] = {
     {"discreps",        no_argument,        NULL, 'c'},
     {"ptrace",          no_argument,        NULL, 'p'},
     {"exec-all",        no_argument,        NULL, 'x'},
-    {"print-regs",      no_argument,        NULL, 'r'}
+    {"print-regs",      no_argument,        NULL, 'r'},
+    {"single-insn",     no_argument,        NULL, 'i'}
 };
 
 void print_help(char *cmd_name)
@@ -766,7 +767,8 @@ Options:\n\
         -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
         -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
-                                (Only available together with -p)\n"
+                                (Only available together with -p)\n\
+        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n"
     );
 }
 
@@ -780,11 +782,12 @@ int main(int argc, char **argv)
     bool use_ptrace = false;
     bool exec_all = false;
     bool print_regs = false;
+    bool single_insn = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxr", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxri", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -827,11 +830,17 @@ int main(int argc, char **argv)
             case 'r':
                 print_regs = true;
                 break;
+            case 'i':
+                single_insn = true;
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
         }
     }
+
+    if (single_insn)
+        insn_range_end = insn_range_start;
 
     pid_t slave_pid = 0;
     if (use_ptrace)
