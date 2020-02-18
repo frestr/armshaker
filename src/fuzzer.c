@@ -33,7 +33,7 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUS_UPDATE_RATE 0x100
+#define STATUS_UPDATE_RATE 0x1
 
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
@@ -152,8 +152,8 @@ void sigsegv_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 
     ucontext_t* uc = (ucontext_t*) uc_ptr;
 
-    /* assert(sig_num == SIGSEGV); */
-    last_insn_segfault = 1;
+    if (sig_num == SIGSEGV)
+        last_insn_segfault = 1;
 
     uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
 
@@ -570,7 +570,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
 
     // Reset all regs
     memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
-    *sp_reg = sp_loc;
+    /* *sp_reg = sp_loc; */
     *pc_reg = insn_loc;
 #ifdef __aarch64__
     regs.pstate = 0;
@@ -703,42 +703,40 @@ void print_execution_result(execution_result *result)
         printf("signal: %d\n", result->signal);
 #else
         printf("\n"
-               "r0: %08lx\t%08lx\n"
-               "r1: %08lx\t%08lx\n"
-               "r2: %08lx\t%08lx\n"
-               "r3: %08lx\t%08lx\n"
-               "r4: %08lx\t%08lx\n"
-               "r5: %08lx\t%08lx\n"
-               "r6: %08lx\t%08lx\n"
-               "r7: %08lx\t%08lx\n"
-               "r8: %08lx\t%08lx\n"
-               "r9: %08lx\t%08lx\n"
-               "r10:%08lx\t%08lx\n"
-               "fp: %08lx\t%08lx\n"
-               "ip: %08lx\t%08lx\n"
-               "sp: %08lx\t%08lx\n"
-               "lr: %08lx\t%08lx\n"
-               "pc: %08lx\t%08lx\n"
-               "cpsr: %08lx\t%08lx\n"
-               "orig_r0: %08lx\t%08lx\n",
-               result->regs_before.uregs[0], result->regs_after.uregs[0],
-               result->regs_before.uregs[1], result->regs_after.uregs[1],
-               result->regs_before.uregs[2], result->regs_after.uregs[2],
-               result->regs_before.uregs[3], result->regs_after.uregs[3],
-               result->regs_before.uregs[4], result->regs_after.uregs[4],
-               result->regs_before.uregs[5], result->regs_after.uregs[5],
-               result->regs_before.uregs[6], result->regs_after.uregs[6],
-               result->regs_before.uregs[7], result->regs_after.uregs[7],
-               result->regs_before.uregs[8], result->regs_after.uregs[8],
-               result->regs_before.uregs[9], result->regs_after.uregs[9],
-               result->regs_before.uregs[10], result->regs_after.uregs[10],
-               result->regs_before.uregs[11], result->regs_after.uregs[11],
-               result->regs_before.uregs[12], result->regs_after.uregs[12],
-               result->regs_before.uregs[13], result->regs_after.uregs[13],
-               result->regs_before.uregs[14], result->regs_after.uregs[14],
-               result->regs_before.uregs[15], result->regs_after.uregs[15],
-               result->regs_before.uregs[16], result->regs_after.uregs[16],
-               result->regs_before.uregs[17], result->regs_after.uregs[17]);
+               "r0:   %08lx  %08lx\n"
+               "r1:   %08lx  %08lx\n"
+               "r2:   %08lx  %08lx\n"
+               "r3:   %08lx  %08lx\n"
+               "r4:   %08lx  %08lx\n"
+               "r5:   %08lx  %08lx\n"
+               "r6:   %08lx  %08lx\n"
+               "r7:   %08lx  %08lx\n"
+               "r8:   %08lx  %08lx\n"
+               "r9:   %08lx  %08lx\n"
+               "r10:  %08lx  %08lx\n"
+               "fp:   %08lx  %08lx\n"
+               "ip:   %08lx  %08lx\n"
+               "sp:   %08lx  %08lx\n"
+               "lr:   %08lx  %08lx\n"
+               "pc:   %08lx  %08lx\n"
+               "cpsr: %08lx  %08lx\n",
+               result->regs_before.uregs[ARM_r0], result->regs_after.uregs[ARM_r0],
+               result->regs_before.uregs[ARM_r1], result->regs_after.uregs[ARM_r1],
+               result->regs_before.uregs[ARM_r2], result->regs_after.uregs[ARM_r2],
+               result->regs_before.uregs[ARM_r3], result->regs_after.uregs[ARM_r3],
+               result->regs_before.uregs[ARM_r4], result->regs_after.uregs[ARM_r4],
+               result->regs_before.uregs[ARM_r5], result->regs_after.uregs[ARM_r5],
+               result->regs_before.uregs[ARM_r6], result->regs_after.uregs[ARM_r6],
+               result->regs_before.uregs[ARM_r7], result->regs_after.uregs[ARM_r7],
+               result->regs_before.uregs[ARM_r8], result->regs_after.uregs[ARM_r8],
+               result->regs_before.uregs[ARM_r9], result->regs_after.uregs[ARM_r9],
+               result->regs_before.uregs[ARM_r10], result->regs_after.uregs[ARM_r10],
+               result->regs_before.uregs[ARM_fp], result->regs_after.uregs[ARM_fp],
+               result->regs_before.uregs[ARM_ip], result->regs_after.uregs[ARM_ip],
+               result->regs_before.uregs[ARM_sp], result->regs_after.uregs[ARM_sp],
+               result->regs_before.uregs[ARM_lr], result->regs_after.uregs[ARM_lr],
+               result->regs_before.uregs[ARM_pc], result->regs_after.uregs[ARM_pc],
+               result->regs_before.uregs[ARM_cpsr], result->regs_after.uregs[ARM_cpsr]);
         printf("signal: %d\n", result->signal);
 #endif
 }
@@ -752,7 +750,8 @@ struct option long_options[] = {
     {"quiet",           required_argument,  NULL, 'q'},
     {"discreps",        no_argument,        NULL, 'c'},
     {"ptrace",          no_argument,        NULL, 'p'},
-    {"exec-all",        no_argument,        NULL, 'x'}
+    {"exec-all",        no_argument,        NULL, 'x'},
+    {"print-regs",      no_argument,        NULL, 'r'}
 };
 
 void print_help(char *cmd_name)
@@ -771,7 +770,9 @@ Options:\n\
         -q, --quiet             Don't print the status line.\n\
         -c, --discreps          Log disassembler discrepancies.\n\
         -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
-        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n"
+        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
+        -r, --print-regs        Print register values before/after instruction execution.\n\
+                                (Only available together with -p)\n"
     );
 }
 
@@ -784,11 +785,12 @@ int main(int argc, char **argv)
     bool log_discreps = false;
     bool use_ptrace = false;
     bool exec_all = false;
+    bool print_regs = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpx", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxr", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -827,6 +829,9 @@ int main(int argc, char **argv)
                 break;
             case 'x':
                 exec_all = true;
+                break;
+            case 'r':
+                print_regs = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -1026,18 +1031,19 @@ int main(int argc, char **argv)
             continue;
         }
 
+        execution_result exec_result = {0};
         if (use_ptrace) {
-            execution_result result = {0};
-            execute_insn_slave(&slave_pid, curr_insn, &result);
+            execute_insn_slave(&slave_pid, curr_insn, &exec_result);
 
-            if (result.died) {
+            if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
                 break;
             }
 
-            last_insn_illegal = (result.signal == SIGILL);
-            last_insn_segfault = (result.signal == SIGSEGV);
-            print_execution_result(&result);
+            last_insn_illegal = (exec_result.signal == SIGILL);
+            last_insn_segfault = (exec_result.signal == SIGSEGV);
+            if (print_regs)
+                print_execution_result(&exec_result);
         } else {
             // Update the first instruction in the instruction buffer
             /* *((uint32_t*)insn_buffer) = curr_insn; */
@@ -1069,8 +1075,42 @@ int main(int argc, char **argv)
                 printf("0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
                        curr_insn, last_insn_segfault ? "yes" : "no");
             } else {
-                fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
-                        curr_insn, last_insn_segfault ? "yes" : "no");
+                if (use_ptrace) {
+#ifdef __aarch64__
+#else
+
+                    unsigned long *regs0 = exec_result.regs_before.uregs;
+                    unsigned long *regs1 = exec_result.regs_after.uregs;
+
+                    fprintf(log_fp, "%08" PRIx32",hidden,%d,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx\n",
+                                    curr_insn, exec_result.signal,
+                                    regs0[ARM_r0], regs1[ARM_r0],
+                                    regs0[ARM_r1], regs1[ARM_r1],
+                                    regs0[ARM_r2], regs1[ARM_r2],
+                                    regs0[ARM_r3], regs1[ARM_r3],
+                                    regs0[ARM_r4], regs1[ARM_r4],
+                                    regs0[ARM_r5], regs1[ARM_r5],
+                                    regs0[ARM_r6], regs1[ARM_r6],
+                                    regs0[ARM_r7], regs1[ARM_r7],
+                                    regs0[ARM_r8], regs1[ARM_r8],
+                                    regs0[ARM_r9], regs1[ARM_r9],
+                                    regs0[ARM_r10], regs1[ARM_r10],
+                                    regs0[ARM_fp], regs1[ARM_fp],
+                                    regs0[ARM_ip], regs1[ARM_ip],
+                                    regs0[ARM_sp], regs1[ARM_sp],
+                                    regs0[ARM_lr], regs1[ARM_lr],
+                                    regs0[ARM_pc], regs1[ARM_pc],
+                                    regs0[ARM_cpsr], regs1[ARM_cpsr]);
+#endif
+                } else {
+                    fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
+                            curr_insn, last_insn_segfault ? "yes" : "no");
+                }
                 fclose(log_fp);
             }
 
