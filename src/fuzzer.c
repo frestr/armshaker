@@ -33,7 +33,7 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
-#define STATUS_UPDATE_RATE 0x1
+#define STATUS_UPDATE_RATE 0x1000
 
 #define INSN_RANGE_MIN 0x00000000
 #define INSN_RANGE_MAX 0xffffffff
@@ -940,6 +940,8 @@ int main(int argc, char **argv)
             snprintf(cs_str,
                      sizeof(cs_str),
                      "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
+            if (capstone_count > 0)
+                cs_free(capstone_insn, capstone_count);
         } else {
             strcpy(cs_str, "invalid assembly code");
         }
@@ -981,24 +983,6 @@ int main(int argc, char **argv)
                                   || strstr(libopcodes_str, "NYI") != NULL
                                   || strstr(libopcodes_str, "UNDEFINED") != NULL);
 
-        /*
-         * TODO: Also check for (constrained) unpredictable instructions.
-         * Proper recovery after executing instructions with side effects
-         * need to be in place first though.
-         */
-
-        // Just count the undefined instruction and continue if we're not
-        // going to execute it anyway (because of the no_exec flag)
-        if (no_exec) {
-            if (libopcodes_undefined && capstone_undefined)
-                ++instructions_checked;
-            else
-                ++instructions_skipped;
-            if (capstone_count > 0)
-                cs_free(capstone_insn, capstone_count);
-            continue;
-        }
-
         /* Only test instructions that both capstone and libopcodes think are
          * undefined, but report inconsistencies, as they might indicate
          * bugs in either of the disassemblers.
@@ -1027,10 +1011,12 @@ int main(int argc, char **argv)
                 ++disas_discreps_found;
             }
 
-            if (capstone_count > 0)
-                cs_free(capstone_insn, capstone_count);
-
             ++instructions_skipped;
+            continue;
+        } else if (no_exec) {
+            // Just count the undefined instruction and continue if we're not
+            // going to execute it anyway (because of the no_exec flag)
+            ++instructions_checked;
             continue;
         }
 
