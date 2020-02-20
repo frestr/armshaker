@@ -235,9 +235,9 @@ def main(stdscr, args):
             update_statuses(procs, statuses)
             update_screen(pad, statuses, extra_data)
             refresh_pad(stdscr, pad)
-            # if stdscr.getch() == ord('q'):
-            #     quit_str = 'User abort'
-            #     break
+            if stdscr.getch() == ord('q'):
+                quit_str = 'User abort'
+                break
             quit = False
             done = True
             for i in range(len(procs)):
