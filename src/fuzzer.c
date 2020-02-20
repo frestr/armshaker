@@ -916,7 +916,9 @@ int main(int argc, char **argv)
     // Clear/create log file
     FILE *log_fp = fopen(log_path, "w");
     if (log_fp == NULL) {
-        fprintf(stderr, "Error opening logfile - will print to stdout instead.\n");
+        fprintf(stderr,
+                "Error opening logfile (%s). Logging will be disabled.\n",
+                log_path);
     } else {
         fclose(log_fp);
     }
@@ -1001,10 +1003,7 @@ int main(int argc, char **argv)
                 if (log_discreps) {
                         log_fp = fopen(log_path, "a");
 
-                        if (log_fp == NULL) {
-                            printf("%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
-                                    curr_insn, cs_str, libopcodes_str);
-                        } else {
+                        if (log_fp != NULL) {
                             fprintf(log_fp,
                                     "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
                                     curr_insn, cs_str, libopcodes_str);
@@ -1063,10 +1062,7 @@ int main(int argc, char **argv)
         if (!last_insn_illegal) {
             log_fp = fopen(log_path, "a");
 
-            if (log_fp == NULL) {
-                printf("0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
-                       curr_insn, last_insn_segfault ? "yes" : "no");
-            } else {
+            if (log_fp != NULL) {
                 if (use_ptrace) {
 #ifdef __aarch64__
 #else
@@ -1100,8 +1096,7 @@ int main(int argc, char **argv)
                                     regs0[ARM_cpsr], regs1[ARM_cpsr]);
 #endif
                 } else {
-                    fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
-                            curr_insn, last_insn_segfault ? "yes" : "no");
+                    fprintf(log_fp, "%08" PRIx32 ",hidden\n", curr_insn);
                 }
                 fclose(log_fp);
             }
