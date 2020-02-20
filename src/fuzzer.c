@@ -746,7 +746,7 @@ struct option long_options[] = {
     {"ptrace",          no_argument,        NULL, 'p'},
     {"exec-all",        no_argument,        NULL, 'x'},
     {"print-regs",      no_argument,        NULL, 'r'},
-    {"single-insn",     no_argument,        NULL, 'i'}
+    {"single-exec",     no_argument,        NULL, 'i'}
 };
 
 void print_help(char *cmd_name)
