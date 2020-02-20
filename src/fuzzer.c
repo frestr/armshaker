@@ -1002,9 +1002,12 @@ int main(int argc, char **argv)
                         log_fp = fopen(log_path, "a");
 
                         if (log_fp == NULL) {
-                            printf("0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                            printf("%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
+                                    curr_insn, cs_str, libopcodes_str);
                         } else {
-                            fprintf(log_fp, "0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                            fprintf(log_fp,
+                                    "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
+                                    curr_insn, cs_str, libopcodes_str);
                             fclose(log_fp);
                         }
                 }
