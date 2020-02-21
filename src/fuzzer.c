@@ -741,7 +741,7 @@ struct option long_options[] = {
     {"end",             required_argument,  NULL, 'e'},
     {"no-exec",         no_argument,        NULL, 'n'},
     {"log-suffix",      required_argument,  NULL, 'l'},
-    {"quiet",           required_argument,  NULL, 'q'},
+    {"quiet",           no_argument,        NULL, 'q'},
     {"discreps",        no_argument,        NULL, 'c'},
     {"ptrace",          no_argument,        NULL, 'p'},
     {"exec-all",        no_argument,        NULL, 'x'},
