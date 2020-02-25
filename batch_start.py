@@ -189,6 +189,8 @@ def start_procs(search_range, args):
                '-s', hex(insn_start),
                '-e', hex(insn_end),
                '-c' if args.discreps else '',
+               '-p' if args.ptrace else '',
+               '-n' if args.no_exec else '',
                '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
@@ -307,7 +309,12 @@ if __name__ == '__main__':
                         type=int, nargs=1,
                         help='Number of worker processes',
                         metavar='NUM', default=0)
-
+    parser.add_argument('-p', '--ptrace',
+                        action='store_true',
+                        help='Use ptrace when testing')
+    parser.add_argument('-n', '--no-exec',
+                        action='store_true',
+                        help='Don\'t execute instructions, just disassemble them.')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)

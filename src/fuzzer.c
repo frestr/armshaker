@@ -17,6 +17,11 @@
 #include <getopt.h>
 #include <libgen.h>
 #include <sys/file.h>
+#include <sys/user.h>
+#include <sys/ptrace.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <elf.h>
 
 #include <capstone/capstone.h>
 
@@ -41,6 +46,33 @@
     #define CAPSTONE_ARCH CS_ARCH_ARM
 #endif
 
+#ifdef __aarch64__
+#define USER_REGS_TYPE user_regs_struct
+#define UREG_COUNT 31
+#else
+#define USER_REGS_TYPE user_regs
+
+#define ARM_r0      0
+#define ARM_r1      1
+#define ARM_r2      2
+#define ARM_r3      3
+#define ARM_r4      4
+#define ARM_r5      5
+#define ARM_r6      6
+#define ARM_r7      7
+#define ARM_r8      8
+#define ARM_r9      9
+#define ARM_r10     10
+#define ARM_fp      11
+#define ARM_ip      12
+#define ARM_sp      13
+#define ARM_lr      14
+#define ARM_pc      15
+#define ARM_cpsr    16
+#define ARM_ORIG_r0 17
+#define UREG_COUNT  18
+#endif
+
 typedef struct {
     uint32_t curr_insn;
     char cs_disas[256];
@@ -52,6 +84,15 @@ typedef struct {
     uint64_t disas_discrepancies;
     uint64_t instructions_per_sec;
 } search_status;
+
+typedef struct {
+    struct USER_REGS_TYPE regs_before;
+    struct USER_REGS_TYPE regs_after;
+
+    uint32_t insn;
+    uint32_t signal;
+    bool died;
+} execution_result;
 
 void *insn_buffer;
 volatile sig_atomic_t last_insn_illegal = 0;
@@ -69,6 +110,12 @@ int libopcodes_disassemble(uint32_t, char*, size_t);
 bool filter_instruction(uint32_t);
 void print_statusline(search_status*);
 int write_statusfile(char*, search_status*);
+void slave_loop(void);
+pid_t spawn_slave(void);
+int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
+int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
+void execute_insn_slave(pid_t*, uint32_t, execution_result*);
+void print_execution_result(execution_result*);
 void print_help(char*);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
@@ -107,8 +154,8 @@ void sigsegv_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 
     ucontext_t* uc = (ucontext_t*) uc_ptr;
 
-    assert(sig_num == SIGSEGV);
-    last_insn_segfault = 1;
+    if (sig_num == SIGSEGV)
+        last_insn_segfault = 1;
 
     uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
 
@@ -242,6 +289,8 @@ void execution_boilerplate(void)
             // Store all gregs
             "push {r0-r12, lr}          \n"
 
+            "vmov s0, sp                \n"
+
             // Reset the regs to make insn execution deterministic
             // and avoid program corruption
             "mov r0, %[reg_init]        \n"
@@ -258,12 +307,19 @@ void execution_boilerplate(void)
             "mov r11, %[reg_init]       \n"
             "mov r12, %[reg_init]       \n"
             "mov lr, %[reg_init]        \n"
+            // Setting the sp to 0 seems to mess up the
+            // signal handling
+            /* "mov sp, %[reg_init]        \n" */
+            "msr cpsr_cxsf, #0x10            \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
 
             // This instruction will be replaced with the one to be tested
             "nop                        \n"
+
+            "msr cpsr_cxsf, #0x10            \n"
+            "vmov sp, s0                \n"
 
             // Restore all gregs
             "pop {r0-r12, lr}           \n"
@@ -272,7 +328,7 @@ void execution_boilerplate(void)
             ".global boilerplate_end    \n"
             "boilerplate_end:           \n"
             :
-            : [reg_init] "n" (PAGE_SIZE)
+            : [reg_init] "n" (0)
             );
 #endif
 }
@@ -468,14 +524,282 @@ int write_statusfile(char *filepath, search_status *status)
     return 0;
 }
 
+void slave_loop(void)
+{
+    asm volatile(
+            "loop:      \n"
+#ifdef __aarch64__
+            "   brk #0  \n"
+#else
+            "   bkpt    \n"
+#endif
+            "   nop     \n"
+            "   b loop  \n"
+            );
+
+}
+
+pid_t spawn_slave(void)
+{
+    pid_t slave_pid = fork();
+    if (slave_pid == 0) {
+        ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        slave_loop();
+    }
+    int status;
+    waitpid(slave_pid, &status, 0);
+    return slave_pid;
+}
+
+int custom_ptrace_getregs(pid_t pid, struct USER_REGS_TYPE *regs)
+{
+#ifdef __aarch64__
+    struct iovec iovec = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_GETREGSET, pid, NT_PRSTATUS, &iovec);
+#else
+    return ptrace(PTRACE_GETREGS, pid, NULL, regs);
+#endif
+}
+
+int custom_ptrace_setregs(pid_t pid, struct USER_REGS_TYPE *regs)
+{
+#ifdef __aarch64__
+    struct iovec iovec = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_SETREGSET, pid, NT_PRSTATUS, &iovec);
+#else
+    return ptrace(PTRACE_SETREGS, pid, NULL, regs);
+#endif
+}
+
+void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *result)
+{
+    int status;
+
+    pid_t slave_pid = *slave_pid_ptr;
+
+    // Set regs etc.
+    struct USER_REGS_TYPE regs;
+
+    if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
+        perror("getregs failed");
+    }
+
+#ifdef __aarch64__
+    static unsigned long long insn_loc = 0;
+    unsigned long long *pc_reg = &regs.pc;
+    unsigned long long *regs_ptr = regs.regs;
+#else
+    static unsigned long insn_loc = 0;
+    unsigned long *pc_reg = &regs.uregs[ARM_pc];
+    unsigned long *regs_ptr = regs.uregs;
+#endif
+
+    if (insn_loc == 0)
+        insn_loc = *pc_reg + 4;
+
+#ifdef __aarch64__
+    /*
+     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytesin AArch64.
+     * Since every instruction is 4 bytes, this will result in the instruction
+     * after being overwritten. We therefore need to combine the two into a
+     * single word before writing.
+     */
+    uint32_t next_insn = (uint32_t)ptrace(PTRACE_PEEKTEXT, slave_pid, insn_loc+4, 0);
+    uint64_t insn_word = insn | ((uint64_t)next_insn << 32);
+#else
+    uint32_t insn_word = insn;
+#endif
+
+    if (ptrace(PTRACE_POKETEXT, slave_pid, insn_loc, insn_word) == -1) {
+        perror("poketext failed");
+    }
+
+    result->insn = insn;
+
+    // Reset all regs
+    memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
+    *pc_reg = insn_loc;
+#ifdef __aarch64__
+    regs.pstate = 0;
+#else
+    regs.uregs[ARM_cpsr] = 0x10;  // user mode
+#endif
+    if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
+        perror("setregs failed");
+    }
+
+    memcpy(&result->regs_before, &regs, sizeof(regs));
+
+    // Execute the instruction
+    ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
+    waitpid(slave_pid, &status, 0);
+
+    if (WIFEXITED(status)) {
+        // TODO: Refork slave if it died
+        result->died = true;
+        return;
+    }
+
+    result->died = false;
+
+    // Store results
+    if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
+        perror("getregs failed");
+    }
+    memcpy(&result->regs_after, &regs, sizeof(regs));
+
+    siginfo_t siginfo;
+    if (ptrace(PTRACE_GETSIGINFO, slave_pid, NULL, &siginfo) == -1) {
+        perror("getsiginfo failed");
+    }
+
+    int signo = siginfo.si_signo;
+    result->signal = (signo == SIGTRAP) ? 0 : signo;
+
+
+    // Fix the pc if the exception prevented the pc from advancing
+    if (*pc_reg == insn_loc) {
+        // Check whether a trap signal was caused by the executed instruction
+        // (as opposed to the bkpt)
+        if (signo == SIGTRAP) {
+            result->signal = signo;
+        }
+        *pc_reg = insn_loc - 4;
+        if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
+            perror("setregs failed");
+        }
+        ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
+        waitpid(slave_pid, &status, 0);
+    }
+}
+
+void print_execution_result(execution_result *result)
+{
+#ifdef __aarch64__
+        printf("\n"
+               "x0: %016llx\t%016llx\n"
+               "x1: %016llx\t%016llx\n"
+               "x2: %016llx\t%016llx\n"
+               "x3: %016llx\t%016llx\n"
+               "x4: %016llx\t%016llx\n"
+               "x5: %016llx\t%016llx\n"
+               "x6: %016llx\t%016llx\n"
+               "x7: %016llx\t%016llx\n"
+               "x8: %016llx\t%016llx\n"
+               "x9: %016llx\t%016llx\n"
+               "x10: %016llx\t%016llx\n"
+               "x11: %016llx\t%016llx\n"
+               "x12: %016llx\t%016llx\n"
+               "x13: %016llx\t%016llx\n"
+               "x14: %016llx\t%016llx\n"
+               "x15: %016llx\t%016llx\n",
+               result->regs_before.regs[0], result->regs_after.regs[0],
+               result->regs_before.regs[1], result->regs_after.regs[1],
+               result->regs_before.regs[2], result->regs_after.regs[2],
+               result->regs_before.regs[3], result->regs_after.regs[3],
+               result->regs_before.regs[4], result->regs_after.regs[4],
+               result->regs_before.regs[5], result->regs_after.regs[5],
+               result->regs_before.regs[6], result->regs_after.regs[6],
+               result->regs_before.regs[7], result->regs_after.regs[7],
+               result->regs_before.regs[8], result->regs_after.regs[8],
+               result->regs_before.regs[9], result->regs_after.regs[9],
+               result->regs_before.regs[10], result->regs_after.regs[10],
+               result->regs_before.regs[11], result->regs_after.regs[11],
+               result->regs_before.regs[12], result->regs_after.regs[12],
+               result->regs_before.regs[13], result->regs_after.regs[13],
+               result->regs_before.regs[14], result->regs_after.regs[14],
+               result->regs_before.regs[15], result->regs_after.regs[15]);
+        printf(""
+               "x16: %016llx\t%016llx\n"
+               "x17: %016llx\t%016llx\n"
+               "x18: %016llx\t%016llx\n"
+               "x19: %016llx\t%016llx\n"
+               "x20: %016llx\t%016llx\n"
+               "x21: %016llx\t%016llx\n"
+               "x22: %016llx\t%016llx\n"
+               "x23: %016llx\t%016llx\n"
+               "x24: %016llx\t%016llx\n"
+               "x25: %016llx\t%016llx\n"
+               "x26: %016llx\t%016llx\n"
+               "x27: %016llx\t%016llx\n"
+               "x28: %016llx\t%016llx\n"
+               "x29: %016llx\t%016llx\n"
+               "x30: %016llx\t%016llx\n",
+               result->regs_before.regs[16], result->regs_after.regs[16],
+               result->regs_before.regs[17], result->regs_after.regs[17],
+               result->regs_before.regs[18], result->regs_after.regs[18],
+               result->regs_before.regs[19], result->regs_after.regs[19],
+               result->regs_before.regs[20], result->regs_after.regs[20],
+               result->regs_before.regs[21], result->regs_after.regs[21],
+               result->regs_before.regs[22], result->regs_after.regs[22],
+               result->regs_before.regs[23], result->regs_after.regs[23],
+               result->regs_before.regs[24], result->regs_after.regs[24],
+               result->regs_before.regs[25], result->regs_after.regs[25],
+               result->regs_before.regs[26], result->regs_after.regs[26],
+               result->regs_before.regs[27], result->regs_after.regs[27],
+               result->regs_before.regs[28], result->regs_after.regs[28],
+               result->regs_before.regs[29], result->regs_after.regs[29],
+               result->regs_before.regs[30], result->regs_after.regs[30]);
+        printf(""
+               "sp: %016llx\t%016llx\n"
+               "pc: %016llx\t%016llx\n"
+               "pstate: %016llx\t%016llx\n",
+               result->regs_before.sp, result->regs_after.sp,
+               result->regs_before.pc, result->regs_after.pc,
+               result->regs_before.pstate, result->regs_before.pstate);
+        printf("signal: %d\n", result->signal);
+#else
+        printf("\n"
+               "r0:   %08lx  %08lx\n"
+               "r1:   %08lx  %08lx\n"
+               "r2:   %08lx  %08lx\n"
+               "r3:   %08lx  %08lx\n"
+               "r4:   %08lx  %08lx\n"
+               "r5:   %08lx  %08lx\n"
+               "r6:   %08lx  %08lx\n"
+               "r7:   %08lx  %08lx\n"
+               "r8:   %08lx  %08lx\n"
+               "r9:   %08lx  %08lx\n"
+               "r10:  %08lx  %08lx\n"
+               "fp:   %08lx  %08lx\n"
+               "ip:   %08lx  %08lx\n"
+               "sp:   %08lx  %08lx\n"
+               "lr:   %08lx  %08lx\n"
+               "pc:   %08lx  %08lx\n"
+               "cpsr: %08lx  %08lx\n",
+               result->regs_before.uregs[ARM_r0], result->regs_after.uregs[ARM_r0],
+               result->regs_before.uregs[ARM_r1], result->regs_after.uregs[ARM_r1],
+               result->regs_before.uregs[ARM_r2], result->regs_after.uregs[ARM_r2],
+               result->regs_before.uregs[ARM_r3], result->regs_after.uregs[ARM_r3],
+               result->regs_before.uregs[ARM_r4], result->regs_after.uregs[ARM_r4],
+               result->regs_before.uregs[ARM_r5], result->regs_after.uregs[ARM_r5],
+               result->regs_before.uregs[ARM_r6], result->regs_after.uregs[ARM_r6],
+               result->regs_before.uregs[ARM_r7], result->regs_after.uregs[ARM_r7],
+               result->regs_before.uregs[ARM_r8], result->regs_after.uregs[ARM_r8],
+               result->regs_before.uregs[ARM_r9], result->regs_after.uregs[ARM_r9],
+               result->regs_before.uregs[ARM_r10], result->regs_after.uregs[ARM_r10],
+               result->regs_before.uregs[ARM_fp], result->regs_after.uregs[ARM_fp],
+               result->regs_before.uregs[ARM_ip], result->regs_after.uregs[ARM_ip],
+               result->regs_before.uregs[ARM_sp], result->regs_after.uregs[ARM_sp],
+               result->regs_before.uregs[ARM_lr], result->regs_after.uregs[ARM_lr],
+               result->regs_before.uregs[ARM_pc], result->regs_after.uregs[ARM_pc],
+               result->regs_before.uregs[ARM_cpsr], result->regs_after.uregs[ARM_cpsr]);
+        printf("signal: %d\n", result->signal);
+#endif
+}
+
 struct option long_options[] = {
     {"help",            no_argument,        NULL, 'h'},
     {"start",           required_argument,  NULL, 's'},
     {"end",             required_argument,  NULL, 'e'},
     {"no-exec",         no_argument,        NULL, 'n'},
     {"log-suffix",      required_argument,  NULL, 'l'},
-    {"quiet",           required_argument,  NULL, 'q'},
-    {"discreps",        no_argument,        NULL, 'c'}
+    {"quiet",           no_argument,        NULL, 'q'},
+    {"discreps",        no_argument,        NULL, 'c'},
+    {"ptrace",          no_argument,        NULL, 'p'},
+    {"exec-all",        no_argument,        NULL, 'x'},
+    {"print-regs",      no_argument,        NULL, 'r'},
+    {"single-exec",     no_argument,        NULL, 'i'}
 };
 
 void print_help(char *cmd_name)
@@ -492,7 +816,12 @@ Options:\n\
                                 without executing them\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
         -q, --quiet             Don't print the status line.\n\
-        -c, --discreps          Log disassembler discrepancies.\n"
+        -c, --discreps          Log disassembler discrepancies.\n\
+        -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
+        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
+        -r, --print-regs        Print register values before/after instruction execution.\n\
+                                (Only available together with -p)\n\
+        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n"
     );
 }
 
@@ -503,11 +832,15 @@ int main(int argc, char **argv)
     bool no_exec = false;
     bool quiet = false;
     bool log_discreps = false;
+    bool use_ptrace = false;
+    bool exec_all = false;
+    bool print_regs = false;
+    bool single_insn = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qc", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxri", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -541,11 +874,30 @@ int main(int argc, char **argv)
             case 'c':
                 log_discreps = true;
                 break;
+            case 'p':
+                use_ptrace = true;
+                break;
+            case 'x':
+                exec_all = true;
+                break;
+            case 'r':
+                print_regs = true;
+                break;
+            case 'i':
+                single_insn = true;
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
         }
     }
+
+    if (single_insn)
+        insn_range_end = insn_range_start;
+
+    pid_t slave_pid = 0;
+    if (use_ptrace)
+        slave_pid = spawn_slave();
 
     char *log_path;
     if (asprintf(&log_path, "%s%s", "data/log", file_suffix == NULL ? "" : file_suffix) == -1) {
@@ -578,6 +930,7 @@ int main(int argc, char **argv)
 
     init_signal_handler(sigill_handler, SIGILL);
     init_signal_handler(sigsegv_handler, SIGSEGV);
+    init_signal_handler(sigsegv_handler, SIGTRAP);
 
     // Allocate an executable page / memory region
     insn_buffer = mmap(NULL,
@@ -616,7 +969,9 @@ int main(int argc, char **argv)
     // Clear/create log file
     FILE *log_fp = fopen(log_path, "w");
     if (log_fp == NULL) {
-        fprintf(stderr, "Error opening logfile - will print to stdout instead.\n");
+        fprintf(stderr,
+                "Error opening logfile (%s). Logging will be disabled.\n",
+                log_path);
     } else {
         fclose(log_fp);
     }
@@ -647,7 +1002,7 @@ int main(int argc, char **argv)
         }
 
         // Now check what libopcodes thinks
-        char libopcodes_str[265] = {0};
+        char libopcodes_str[256] = {0};
         int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, sizeof(libopcodes_str));
         if (libopcodes_ret != 0) {
             fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
@@ -684,23 +1039,6 @@ int main(int argc, char **argv)
                                   || strstr(libopcodes_str, "NYI") != NULL
                                   || strstr(libopcodes_str, "UNDEFINED") != NULL);
 
-        /*
-         * TODO: Also check for (constrained) unpredictable instructions.
-         * Proper recovery after executing instructions with side effects
-         * need to be in place first though.
-         */
-
-        // Just count the undefined instruction and continue if we're not
-        // going to execute it anyway (because of the no_exec flag)
-        if (no_exec) {
-            if (libopcodes_undefined && capstone_undefined)
-                ++instructions_checked;
-            else
-                ++instructions_skipped;
-
-            continue;
-        }
-
         /* Only test instructions that both capstone and libopcodes think are
          * undefined, but report inconsistencies, as they might indicate
          * bugs in either of the disassemblers.
@@ -712,17 +1050,17 @@ int main(int argc, char **argv)
          * other issues, so better use both. libopcodes is a bit slower, but
          * actually executing the insns takes so long anyway.
          */
-        if (!capstone_undefined || !libopcodes_undefined) {
+        if ((!capstone_undefined || !libopcodes_undefined) && !exec_all) {
             // Write to log if one of the disassemblers thinks the instruction
             // is undefined, but not the other one
             if (capstone_undefined || libopcodes_undefined) {
                 if (log_discreps) {
                         log_fp = fopen(log_path, "a");
 
-                        if (log_fp == NULL) {
-                            printf("0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
-                        } else {
-                            fprintf(log_fp, "0x%08" PRIx32 " | discrepancy: cs{%s} / libopc{%s}\n", curr_insn, cs_str, libopcodes_str);
+                        if (log_fp != NULL) {
+                            fprintf(log_fp,
+                                    "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
+                                    curr_insn, cs_str, libopcodes_str);
                             fclose(log_fp);
                         }
                 }
@@ -730,6 +1068,11 @@ int main(int argc, char **argv)
             }
 
             ++instructions_skipped;
+            continue;
+        } else if (no_exec) {
+            // Just count the undefined instruction and continue if we're not
+            // going to execute it anyway (because of the no_exec flag)
+            ++instructions_checked;
             continue;
         }
 
@@ -740,35 +1083,82 @@ int main(int argc, char **argv)
 
         // Update the first instruction in the instruction buffer
         /* *((uint32_t*)insn_buffer) = curr_insn; */
-        ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
+        execution_result exec_result = {0};
+        if (use_ptrace) {
+            execute_insn_slave(&slave_pid, curr_insn, &exec_result);
 
-        last_insn_illegal = 0;
-        last_insn_segfault = 0;
+            if (exec_result.died) {
+                fprintf(stderr, "slave died. quitting...\n");
+                break;
+            }
 
-        /*
-         * Clear insn_buffer (at the insn to be tested)
-         * in the d- and icache
-         * (some instructions might be skipped otherwise.)
-         */
-        __clear_cache(insn_buffer + insn_offset * 4,
-                      insn_buffer + insn_offset * 4 + sizeof(curr_insn));
+            last_insn_illegal = (exec_result.signal == SIGILL);
+            last_insn_segfault = (exec_result.signal == SIGSEGV);
+            if (print_regs)
+                print_execution_result(&exec_result);
+        } else {
+            // Update the first instruction in the instruction buffer
+            /* *((uint32_t*)insn_buffer) = curr_insn; */
+            ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
 
-        executing_insn = 1;
+            last_insn_illegal = 0;
+            last_insn_segfault = 0;
 
-        // Jump to the instruction to be tested (and execute it)
-        execute_insn_buffer();
+            /*
+             * Clear insn_buffer (at the insn to be tested)
+             * in the d- and icache
+             * (some instructions might be skipped otherwise.)
+             */
+            __clear_cache(insn_buffer + insn_offset * 4,
+                          insn_buffer + insn_offset * 4 + sizeof(curr_insn));
 
-        executing_insn = 0;
+            executing_insn = 1;
+
+            // Jump to the instruction to be tested (and execute it)
+            execute_insn_buffer();
+
+            executing_insn = 0;
+        }
 
         if (!last_insn_illegal) {
             log_fp = fopen(log_path, "a");
 
-            if (log_fp == NULL) {
-                printf("0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
-                       curr_insn, last_insn_segfault ? "yes" : "no");
-            } else {
-                fprintf(log_fp, "0x%08" PRIx32 " | Hidden instruction! Segfault: %s\n",
-                        curr_insn, last_insn_segfault ? "yes" : "no");
+            if (log_fp != NULL) {
+                if (use_ptrace) {
+#ifdef __aarch64__
+#else
+
+                    unsigned long *regs0 = exec_result.regs_before.uregs;
+                    unsigned long *regs1 = exec_result.regs_after.uregs;
+
+                    fprintf(log_fp, "%08" PRIx32",hidden,%d,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
+                                    "%lx-%lx\n",
+                                    curr_insn, exec_result.signal,
+                                    regs0[ARM_r0], regs1[ARM_r0],
+                                    regs0[ARM_r1], regs1[ARM_r1],
+                                    regs0[ARM_r2], regs1[ARM_r2],
+                                    regs0[ARM_r3], regs1[ARM_r3],
+                                    regs0[ARM_r4], regs1[ARM_r4],
+                                    regs0[ARM_r5], regs1[ARM_r5],
+                                    regs0[ARM_r6], regs1[ARM_r6],
+                                    regs0[ARM_r7], regs1[ARM_r7],
+                                    regs0[ARM_r8], regs1[ARM_r8],
+                                    regs0[ARM_r9], regs1[ARM_r9],
+                                    regs0[ARM_r10], regs1[ARM_r10],
+                                    regs0[ARM_fp], regs1[ARM_fp],
+                                    regs0[ARM_ip], regs1[ARM_ip],
+                                    regs0[ARM_sp], regs1[ARM_sp],
+                                    regs0[ARM_lr], regs1[ARM_lr],
+                                    regs0[ARM_pc], regs1[ARM_pc],
+                                    regs0[ARM_cpsr], regs1[ARM_cpsr]);
+#endif
+                } else {
+                    fprintf(log_fp, "%08" PRIx32 ",hidden\n", curr_insn);
+                }
                 fclose(log_fp);
             }
 
