@@ -33,6 +33,8 @@
 #define PACKAGE_VERSION
 #include <dis-asm.h>
 
+#include "filter.h"
+
 #define STATUS_UPDATE_RATE 0x1000
 
 #define INSN_RANGE_MIN 0x00000000
@@ -107,7 +109,6 @@ void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 int libopcodes_disassemble(uint32_t, char*, size_t);
-bool filter_instruction(uint32_t);
 void print_statusline(search_status*);
 int write_statusfile(char*, search_status*);
 void slave_loop(void);
@@ -412,53 +413,6 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     free(ss.buffer);
 
     return 0;
-}
-
-/*
- * Mostly taken from binutils/opcodes/aarch64-opc.c
- * In essence, this checks whether the ldpsw verifier in libopcodes
- * would (incorrectly) mark the instruction as undefined or not.
- */
-bool is_unpredictable_ldpsw(uint32_t insn)
-{
-#define BIT(INSN,BT)     (((INSN) >> (BT)) & 1)
-#define BITS(INSN,HI,LO) (((INSN) >> (LO)) & ((1 << (((HI) - (LO)) + 1)) - 1))
-
-    // Is an LDPSW insn?
-    if ((insn & 0xfec00000) != 0x68c00000 && (insn & 0xffc00000) != 0x69400000) {
-        return false;
-    }
-
-    // Is it unpredictable?
-    uint32_t t = BITS(insn, 4, 0);
-    uint32_t n = BITS(insn, 9, 5);
-    uint32_t t2 = BITS(insn, 14, 10);
-
-    if (BIT(insn, 23)) {
-        // Writeback
-        if ((t == n || t2 == n) && n != 31) {
-            return true;
-        }
-    }
-
-    if (BIT(insn, 22)) {
-        // Load
-        if (t == t2) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool filter_instruction(uint32_t insn)
-{
-#ifdef __aarch64__
-    if (is_unpredictable_ldpsw(insn))
-        return true;
-#else
-#endif
-    return false;
 }
 
 void print_statusline(search_status *status)
