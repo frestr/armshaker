@@ -753,7 +753,8 @@ struct option long_options[] = {
     {"ptrace",          no_argument,        NULL, 'p'},
     {"exec-all",        no_argument,        NULL, 'x'},
     {"print-regs",      no_argument,        NULL, 'r'},
-    {"single-exec",     no_argument,        NULL, 'i'}
+    {"single-exec",     no_argument,        NULL, 'i'},
+    {"filter",          no_argument,        NULL, 'f'}
 };
 
 void print_help(char *cmd_name)
@@ -775,7 +776,9 @@ Options:\n\
         -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
                                 (Only available together with -p)\n\
-        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n"
+        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
+        -f, --filter            Filter away (skip) certain unpredictable instructions.\n\
+                                (Like insutructions with incorrect SBO/SBZ bits.)\n"
     );
 }
 
@@ -790,11 +793,12 @@ int main(int argc, char **argv)
     bool exec_all = false;
     bool print_regs = false;
     bool single_insn = false;
+    bool do_filter = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxri", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -839,6 +843,9 @@ int main(int argc, char **argv)
                 break;
             case 'i':
                 single_insn = true;
+                break;
+            case 'f':
+                do_filter = true;
                 break;
             default:
                 print_help(argv[0]);
@@ -1030,7 +1037,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (filter_instruction(curr_insn)) {
+        if (do_filter && filter_instruction(curr_insn)) {
             ++instructions_filtered;
             continue;
         }

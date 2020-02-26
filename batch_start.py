@@ -191,6 +191,7 @@ def start_procs(search_range, args):
                '-c' if args.discreps else '',
                '-p' if args.ptrace else '',
                '-n' if args.no_exec else '',
+               '-f' if args.filter else '',
                '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
@@ -315,6 +316,9 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--no-exec',
                         action='store_true',
                         help='Don\'t execute instructions, just disassemble them.')
+    parser.add_argument('-f', '--filter',
+                        action='store_true',
+                        help='Filter certain instructions')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
