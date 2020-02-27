@@ -98,8 +98,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
 
         sum_status['insns_so_far'] += (int(status['instructions_checked'])
                                      + int(status['instructions_skipped'])
-                                     + int(status['instructions_filtered'])
-                                     + int(status['hidden_instructions_found']))
+                                     + int(status['instructions_filtered']))
 
     total_insns = extra_data['search_range'][1] - extra_data['search_range'][0] + 1
     progress = (sum_status['insns_so_far'] / total_insns) * 100
@@ -117,7 +116,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
     lines.append('hidden:    {:,}'.format(int(sum_status['hidden'])))
     lines.append('discreps:  {:,}'.format(int(sum_status['discreps'])))
     lines.append('ips:       {:,}'.format(int(sum_status['ips'])))
-    lines.append('progress:  {:.4f}%'.format(progress))
+    lines.append('progress:  {:.3f}%'.format(progress))
     lines.append('elapsed:   {:.2f}hrs'.format(elapsed_hrs))
     lines.append('eta:       {:.1f}hrs'.format(eta_hrs))
 
