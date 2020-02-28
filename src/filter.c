@@ -9,7 +9,7 @@ struct opcode
     const char *disassembly;
 };
 
-static const struct opcode arm_opcodes[] =
+static const struct opcode base_opcodes[] =
 {
 #ifdef __aarch64__
 #else
@@ -356,6 +356,97 @@ static const struct opcode arm_opcodes[] =
 #endif
 };
 
+static const struct opcode extra_opcodes[] =
+{
+#ifdef __aarch64__
+#else
+    /*
+     * Most of the FPU and SIMD instructions don't have any SBO/SBZ bits,
+     * so just include those who actually do (as opposed to the base
+     * instructions, where all instructions are included).
+     */
+
+    // FPU
+    {0x0c400b10, 0x0ff00fd0, 0, "vmov%c\t%0-3,5D, %12-15r, %16-19r"},
+    {0x0c500b10, 0x0ff00fd0, 0, "vmov%c\t%12-15r, %16-19r, %0-3,5D"},
+    {0x0e000b10, 0x0fd00f70, 0x0000000f, "vmov%c.32\t%16-19,7D[%21d], %12-15r"},
+    {0x0e100b10, 0x0f500f70, 0x0000000f, "vmov%c.32\t%12-15r, %16-19,7D[%21d]"},
+    {0x0e000b30, 0x0fd00f30, 0x0000000f, "vmov%c.16\t%16-19,7D[%6,21d], %12-15r"},
+    {0x0e100b30, 0x0f500f30, 0x0000000f, "vmov%c.%23?us16\t%12-15r, %16-19,7D[%6,21d]"},
+    {0x0e400b10, 0x0fd00f10, 0x0000000f, "vmov%c.8\t%16-19,7D[%5,6,21d], %12-15r"},
+    {0x0e500b10, 0x0f500f10, 0x0000000f, "vmov%c.%23?us8\t%12-15r, %16-19,7D[%5,6,21d]"},
+    {0x0ee00a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpsid, %12-15r"},
+    {0x0ee10a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpscr, %12-15r"},
+    {0x0ee20a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpscr_nzcvqc, %12-15r"},
+    {0x0ee60a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tmvfr1, %12-15r"},
+    {0x0ee70a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tmvfr0, %12-15r"},
+    {0x0ee50a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tmvfr2, %12-15r"},
+    {0x0ee80a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpexc, %12-15r"},
+    {0x0ee90a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpinst, %12-15r\t@ Impl def"},
+    {0x0eea0a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpinst2, %12-15r\t@ Impl def"},
+    {0x0eec0a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tvpr, %12-15r"},
+    {0x0eed0a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tp0, %12-15r"},
+    {0x0eee0a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpcxt_ns, %12-15r"},
+    {0x0eef0a10, 0x0fff0fff, 0x000000ef, "vmsr%c\tfpcxt_s, %12-15r"},
+    {0x0ef00a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpsid"},
+    {0x0ef1fa10, 0x0fffffff, 0x000000ef, "vmrs%c\tAPSR_nzcv, fpscr"},
+    {0x0ef10a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpscr"},
+    {0x0ef20a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpscr_nzcvqc"},
+    {0x0ef50a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, mvfr2"},
+    {0x0ef60a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, mvfr1"},
+    {0x0ef70a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, mvfr0"},
+    {0x0ef80a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpexc"},
+    {0x0ef90a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpinst\t@ Impl def"},
+    {0x0efa0a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpinst2\t@ Impl def"},
+    {0x0efc0a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, vpr"},
+    {0x0efd0a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, p0"},
+    {0x0efe0a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpcxt_ns"},
+    {0x0eff0a10, 0x0fff0fff, 0x000000ef, "vmrs%c\t%12-15r, fpcxt_s"},
+    {0x0e000b10, 0x0fd00fff, 0x0000000f, "vmov%c.32\t%z2[%21d], %12-15r"},
+    {0x0e100b10, 0x0fd00fff, 0x0000000f, "vmov%c.32\t%12-15r, %z2[%21d]"},
+    {0x0ee00a10, 0x0ff00fff, 0x000000ef, "vmsr%c\t<impl def %16-19x>, %12-15r"},
+    {0x0ef00a10, 0x0ff00fff, 0x000000ef, "vmrs%c\t%12-15r, <impl def %16-19x>"},
+    {0x0e000a10, 0x0ff00f7f, 0x0000006f, "vmov%c\t%y2, %12-15r"},
+    {0x0e100a10, 0x0ff00f7f, 0x0000006f, "vmov%c\t%12-15r, %y2"},
+    {0x0eb50a40, 0x0fbf0f70, 0x0000002f, "vcmp%7'e%c.f32\t%y1, #0.0"},
+    {0x0eb50b40, 0x0fbf0f70, 0x0000002f, "vcmp%7'e%c.f64\t%z1, #0.0"},
+    {0x0eb00a40, 0x0fbf0fd0, 0, "vmov%c.f32\t%y1, %y0"},
+    {0x0eb00b40, 0x0fbf0fd0, 0, "vmov%c.f64\t%z1, %z0"},
+    {0x0eb40a40, 0x0fbf0f50, 0, "vcmp%7'e%c.f32\t%y1, %y0"},
+    {0x0eb40b40, 0x0fbf0f50, 0, "vcmp%7'e%c.f64\t%z1, %z0"},
+    {0x0c500b10, 0x0fb00ff0, 0, "vmov%c\t%12-15r, %16-19r, %z0"},
+    {0x0eb00a00, 0x0fb00ff0, 0x000000a0, "vmov%c.f32\t%y1, #%0-3,16-19E"},
+    {0x0eb00b00, 0x0fb00ff0, 0x000000a0, "vmov%c.f64\t%z1, #%0-3,16-19E"},
+    {0x0c400a10, 0x0ff00fd0, 0, "vmov%c\t%y4, %12-15r, %16-19r"},
+    {0x0c400b10, 0x0ff00fd0, 0, "vmov%c\t%z0, %12-15r, %16-19r"},
+    {0x0c500a10, 0x0ff00fd0, 0, "vmov%c\t%12-15r, %16-19r, %y4"},
+    {0x0eb40940, 0x0fbf0f50, 0, "vcmp%7'e%c.f16\t%y1, %y0"},
+    {0x0eb50940, 0x0fbf0f70, 0x000002f0, "vcmp%7'e%c.f16\t%y1, #0.0"},
+    {0x0e100910, 0x0ff00f7f, 0x0000006f, "vmov%c.f16\t%12-15r, %y2"},
+    {0x0e000910, 0x0ff00f7f, 0x0000006f, "vmov%c.f16\t%y2, %12-15r"},
+    {0x0eb00900, 0x0fb00ff0, 0x000000a0, "vmov%c.f16\t%y1, #%0-3,16-19E"},
+
+    // SIMD
+    {0x0e800b10, 0x1ff00f70, 0x0000000f, "vdup%c.32\t%16-19,7D, %12-15r"},
+    {0x0e800b30, 0x1ff00f70, 0x0000000f, "vdup%c.16\t%16-19,7D, %12-15r"},
+    {0x0ea00b10, 0x1ff00f70, 0x0000000f, "vdup%c.32\t%16-19,7Q, %12-15r"},
+    {0x0ea00b30, 0x1ff00f70, 0x0000000f, "vdup%c.16\t%16-19,7Q, %12-15r"},
+    {0x0ec00b10, 0x1ff00f70, 0x0000000f, "vdup%c.8\t%16-19,7D, %12-15r"},
+    {0x0ee00b10, 0x1ff00f70, 0x0000000f, "vdup%c.8\t%16-19,7Q, %12-15r"},
+    {0xf3b40c00, 0xffb70f90, 0, "vdup%c.32\t%12-15,22R, %0-3,5D[%19d]"},
+    {0xf3b20c00, 0xffb30f90, 0, "vdup%c.16\t%12-15,22R, %0-3,5D[%18-19d]"},
+    {0xf3b10c00, 0xffb10f90, 0, "vdup%c.8\t%12-15,22R, %0-3,5D[%17-19d]"},
+    {0xf2800e10, 0xfeb80fb0, 0, "vmov%c.i8\t%12-15,22R, %E"},
+    {0xf2800e30, 0xfeb80fb0, 0, "vmov%c.i64\t%12-15,22R, %E"},
+    {0xf2800f10, 0xfeb80fb0, 0, "vmov%c.f32\t%12-15,22R, %E"},
+    {0xf2800810, 0xfeb80db0, 0, "vmov%c.i16\t%12-15,22R, %E"},
+    {0xf2800c10, 0xfeb80eb0, 0, "vmov%c.i32\t%12-15,22R, %E"},
+    {0xf2800010, 0xfeb808b0, 0, "vmov%c.i32\t%12-15,22R, %E"},
+
+    {0x00000000, 0x00000000, 0, 0}
+#endif
+};
+
 /*
  * Checks whether insn is a legal/defined instruction that has
  * incorrect should-be-one/should-be-zero bits set. libopcodes
@@ -365,10 +456,10 @@ static const struct opcode arm_opcodes[] =
  * Without this filter, these instructions will often be marked as
  * hidden, generating a lot of false positives.
  */
-static bool has_incorrect_sb_bits(uint32_t insn)
+static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes)
 {
     const struct opcode *curr_op;
-    for (curr_op = arm_opcodes; curr_op->disassembly; ++curr_op) {
+    for (curr_op = opcodes; curr_op->disassembly; ++curr_op) {
         uint32_t masked_insn = (insn & curr_op->op_mask);
         uint32_t sb_masked_insn = masked_insn & ~(curr_op->sb_mask);
         uint32_t sb_masked_value = curr_op->op_value & ~(curr_op->sb_mask);
@@ -430,9 +521,9 @@ bool filter_instruction(uint32_t insn)
         return true;
 #endif
 
-    if (has_incorrect_sb_bits(insn))
+    if (has_incorrect_sb_bits(insn, base_opcodes)
+            || has_incorrect_sb_bits(insn, extra_opcodes))
         return true;
 
     return false;
 }
-
