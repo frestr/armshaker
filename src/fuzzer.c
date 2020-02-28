@@ -1037,7 +1037,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (do_filter && filter_instruction(curr_insn)) {
+        if (do_filter && filter_instruction(curr_insn) && !exec_all) {
             ++instructions_filtered;
             continue;
         }
