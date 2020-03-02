@@ -11,7 +11,7 @@ if len(argv) < 2:
     print('Usage: {} <hex>'.format(basename(argv[0])))
     exit(1)
 
-res = re.match('(0x)?([0-9a-f]{1,8})', argv[1])
+res = re.fullmatch('(0x)?([0-9a-f]{1,8})', argv[1])
 if res is None:
     print('Invalid argument')
     exit(1)
