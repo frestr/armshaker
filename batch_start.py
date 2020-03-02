@@ -148,7 +148,7 @@ def print_summary(pad, statuses, extra_data, just_height=False):
 
 
 def print_done(pad):
-    y_offset = 15
+    y_offset = 17
     x_offset = WORKER_AREA_WIDTH - 5
     pad.addstr(y_offset+0, x_offset, '╔═════════════╗')
     pad.addstr(y_offset+1, x_offset, '║             ║')
