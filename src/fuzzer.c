@@ -965,6 +965,9 @@ int main(int argc, char **argv)
     uint64_t disas_discreps_found = 0;
     uint64_t last_timestamp = get_nano_timestamp();
 
+    char cs_str[256] = {0};
+    char libopcodes_str[256] = {0};
+
     uint32_t curr_insn;
     search_status curr_status = {0};
 
@@ -974,7 +977,6 @@ int main(int argc, char **argv)
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
         bool capstone_undefined = (capstone_count == 0);
-        char cs_str[256] = {0};
         if (capstone_count > 0) {
             snprintf(cs_str,
                      sizeof(cs_str),
@@ -985,7 +987,6 @@ int main(int argc, char **argv)
         }
 
         // Now check what libopcodes thinks
-        char libopcodes_str[256] = {0};
         int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, sizeof(libopcodes_str));
         if (libopcodes_ret != 0) {
             fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
@@ -1156,6 +1157,10 @@ int main(int argc, char **argv)
 
     // Print the statusline one last time to capture the result of the last insn
     curr_status.curr_insn = curr_insn;
+    strncpy(curr_status.cs_disas, cs_str, sizeof(curr_status.cs_disas));
+    strncpy(curr_status.libopcodes_disas,
+            libopcodes_str,
+            sizeof(curr_status.libopcodes_disas));
     curr_status.instructions_checked = instructions_checked;
     curr_status.instructions_skipped = instructions_skipped;
     curr_status.instructions_filtered = instructions_filtered;
