@@ -14,13 +14,23 @@ bytes=("${insn:0:2}" "${insn:2:2}" "${insn:4:2}" "${insn:6:2}")
 file=$(mktemp)
 echo -ne "\x${bytes[3]}\x${bytes[2]}\x${bytes[1]}\x${bytes[0]}" > $file
 
-ob=$(objdump -b binary -m arm -D $file \
+if [[ "$(uname -m)" =~ "arm" ]]; then
+    arch="arm"
+else
+    arch="aarch64"
+fi
+
+ob=$(objdump -b binary -m $arch -D $file \
      | tail -n1 \
      | awk '{$1=$2=""; print $0}' \
      | cut -c3-)
 echo -e "ob:\t$ob"
 
-cs=$(cstool arm "${bytes[3]} ${bytes[2]} ${bytes[1]} ${bytes[0]}" \
+if [[ "$arch" = "aarch64" ]]; then
+    arch="arm64"
+fi
+
+cs=$(cstool $arch "${bytes[3]} ${bytes[2]} ${bytes[1]} ${bytes[0]}" \
      | awk '{$1=$2=$3=$4=$5=""; print $0}' \
      | cut -c6-)
 
