@@ -75,6 +75,9 @@
 #define UREG_COUNT  18
 #endif
 
+// Increment bits in x indicated by the mask m
+#define MASKED_INCREMENT(x, m) (x = (x & ~m) | (((x | ~m) + 1) & m))
+
 typedef struct {
     uint32_t curr_insn;
     char cs_disas[256];
@@ -754,7 +757,8 @@ struct option long_options[] = {
     {"exec-all",        no_argument,        NULL, 'x'},
     {"print-regs",      no_argument,        NULL, 'r'},
     {"single-exec",     no_argument,        NULL, 'i'},
-    {"filter",          no_argument,        NULL, 'f'}
+    {"filter",          no_argument,        NULL, 'f'},
+    {"mask",            required_argument,  NULL, 'm'}
 };
 
 void print_help(char *cmd_name)
@@ -778,7 +782,10 @@ Options:\n\
                                 (Only available together with -p)\n\
         -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
         -f, --filter            Filter away (skip) certain unpredictable instructions.\n\
-                                (Like insutructions with incorrect SBO/SBZ bits.)\n"
+                                (Mainly instructions with incorrect SBO/SBZ bits.)\n\
+        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
+                                [default: 0xffffffff]\n\
+                                Example: 0xf0000000 -> only increment most significant nibble\n"
     );
 }
 
@@ -786,6 +793,7 @@ int main(int argc, char **argv)
 {
     uint32_t insn_range_start = INSN_RANGE_MIN;
     uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
+    uint64_t insn_mask = ~0;
     bool no_exec = false;
     bool quiet = false;
     bool log_discreps = false;
@@ -798,20 +806,20 @@ int main(int argc, char **argv)
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
                 return 1;
             case 's':
-                insn_range_start = strtoll(optarg, &endptr, 16);
+                insn_range_start = strtoull(optarg, &endptr, 16);
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read instruction range start\n");
                     return 1;
                 }
                 break;
             case 'e':
-                insn_range_end = strtoll(optarg, &endptr, 16);
+                insn_range_end = strtoull(optarg, &endptr, 16);
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read instruction range end\n");
                     return 1;
@@ -846,6 +854,19 @@ int main(int argc, char **argv)
                 break;
             case 'f':
                 do_filter = true;
+                break;
+            case 'm':
+                insn_mask = strtoull(optarg, &endptr, 16);
+                if (*endptr != '\0') {
+                    fprintf(stderr, "ERROR: Unable to read instruction mask\n");
+                    return 1;
+                }
+                /*
+                 * Set all the bits in the upper half of the (64-bit) mask.
+                 * This way we don't need to check for wrap-around
+                 * after MASKED_INCREMENT.
+                 */
+                insn_mask = 0xffffffff00000000 | (insn_mask & 0xffffffff);
                 break;
             default:
                 print_help(argv[0]);
@@ -944,10 +965,11 @@ int main(int argc, char **argv)
     uint64_t disas_discreps_found = 0;
     uint64_t last_timestamp = get_nano_timestamp();
 
+    uint32_t curr_insn;
     search_status curr_status = {0};
 
-    for (uint64_t i = insn_range_start; i <= insn_range_end; ++i) {
-        uint32_t curr_insn = i & 0xffffffff;
+    for (uint64_t i = insn_range_start; i <= insn_range_end; MASKED_INCREMENT(i, insn_mask)) {
+        curr_insn = i & 0xffffffff;
 
         // Check if capstone thinks the instruction is undefined
         size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
@@ -970,8 +992,11 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        uint64_t total_insns = (instructions_checked
+                                + instructions_skipped
+                                + instructions_filtered);
         // Write the current search status to the statusfile now and then
-        if (i % STATUS_UPDATE_RATE == 0 || i == insn_range_end) {
+        if (total_insns % STATUS_UPDATE_RATE == 0 || curr_insn == insn_range_end) {
             curr_status.curr_insn = curr_insn;
             strncpy(curr_status.cs_disas, cs_str, sizeof(curr_status.cs_disas));
             strncpy(curr_status.libopcodes_disas,
@@ -1130,6 +1155,7 @@ int main(int argc, char **argv)
     }
 
     // Print the statusline one last time to capture the result of the last insn
+    curr_status.curr_insn = curr_insn;
     curr_status.instructions_checked = instructions_checked;
     curr_status.instructions_skipped = instructions_skipped;
     curr_status.instructions_filtered = instructions_filtered;
