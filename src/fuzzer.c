@@ -488,7 +488,11 @@ void slave_loop(void)
 #ifdef __aarch64__
             "   brk #0  \n"
 #else
-            "   bkpt    \n"
+            /*
+             * UDF #16 is the same as bkpt in Linux, but without filling up the syslog
+             * (https://www.jwhitham.org//2015/04/the-mystery-of-fifteen-millisecond.html)
+             */
+            "   udf #16 \n"
 #endif
             "   nop     \n"
             "   b loop  \n"
