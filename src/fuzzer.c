@@ -521,25 +521,30 @@ void print_help(char *cmd_name)
     printf("Usage: %s [option(s)]\n", cmd_name);
     printf("\n\
 Options:\n\
-        -h, --help              Print help information\n\
-        -s, --start <insn>      Start of instruction search range (in hex)\n\
+        -h, --help              Print help information.\n\
+        -s, --start <insn>      Start of instruction search range (in hex).\n\
                                 [default: 0x00000000]\n\
-        -e, --end <insn>        End of instruction search range, inclusive (in hex)\n\
+        -e, --end <insn>        End of instruction search range, inclusive (in hex).\n\
                                 [default: 0xffffffff]\n\
         -n, --no-exec           Calculate the total amount of undefined instructions,\n\
-                                without executing them\n\
+                                without executing them.\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
         -q, --quiet             Don't print the status line.\n\
         -c, --discreps          Log disassembler discrepancies.\n\
         -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
+                                This will generally make execution slower, but lowers the\n\
+                                chance of the fuzzer crashing in case hidden instructions\n\
+                                with certain side-effects are found. It also enables\n\
+                                logging register content changes on hidden instructions.\n\
         -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
                                 (Only available together with -p)\n\
         -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
-        -f, --filter            Filter away (skip) certain unpredictable instructions.\n\
+        -f, --filter            Filter away (skip) certain instructions that might generate\n\
+                                false positives.\n\
                                 (Mainly instructions with incorrect SBO/SBZ bits.)\n\
         -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
-                                [default: 0xffffffff]\n\
+                                Useful for testing different operands on a single instruction.\n\
                                 Example: 0xf0000000 -> only increment most significant nibble\n"
     );
 }
