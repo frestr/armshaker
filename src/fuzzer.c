@@ -581,6 +581,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
     *pc_reg = insn_loc;
 #ifdef __aarch64__
+    regs.sp = 0;
     regs.pstate = 0;
 #else
     regs.uregs[ARM_cpsr] = 0x10;  // user mode
@@ -638,22 +639,22 @@ void print_execution_result(execution_result *result)
 {
 #ifdef __aarch64__
         printf("\n"
-               "x0: %016llx\t%016llx\n"
-               "x1: %016llx\t%016llx\n"
-               "x2: %016llx\t%016llx\n"
-               "x3: %016llx\t%016llx\n"
-               "x4: %016llx\t%016llx\n"
-               "x5: %016llx\t%016llx\n"
-               "x6: %016llx\t%016llx\n"
-               "x7: %016llx\t%016llx\n"
-               "x8: %016llx\t%016llx\n"
-               "x9: %016llx\t%016llx\n"
-               "x10: %016llx\t%016llx\n"
-               "x11: %016llx\t%016llx\n"
-               "x12: %016llx\t%016llx\n"
-               "x13: %016llx\t%016llx\n"
-               "x14: %016llx\t%016llx\n"
-               "x15: %016llx\t%016llx\n",
+               "x0:     %016llx\t%016llx\n"
+               "x1:     %016llx\t%016llx\n"
+               "x2:     %016llx\t%016llx\n"
+               "x3:     %016llx\t%016llx\n"
+               "x4:     %016llx\t%016llx\n"
+               "x5:     %016llx\t%016llx\n"
+               "x6:     %016llx\t%016llx\n"
+               "x7:     %016llx\t%016llx\n"
+               "x8:     %016llx\t%016llx\n"
+               "x9:     %016llx\t%016llx\n"
+               "x10:    %016llx\t%016llx\n"
+               "x11:    %016llx\t%016llx\n"
+               "x12:    %016llx\t%016llx\n"
+               "x13:    %016llx\t%016llx\n"
+               "x14:    %016llx\t%016llx\n"
+               "x15:    %016llx\t%016llx\n",
                result->regs_before.regs[0], result->regs_after.regs[0],
                result->regs_before.regs[1], result->regs_after.regs[1],
                result->regs_before.regs[2], result->regs_after.regs[2],
@@ -671,21 +672,21 @@ void print_execution_result(execution_result *result)
                result->regs_before.regs[14], result->regs_after.regs[14],
                result->regs_before.regs[15], result->regs_after.regs[15]);
         printf(""
-               "x16: %016llx\t%016llx\n"
-               "x17: %016llx\t%016llx\n"
-               "x18: %016llx\t%016llx\n"
-               "x19: %016llx\t%016llx\n"
-               "x20: %016llx\t%016llx\n"
-               "x21: %016llx\t%016llx\n"
-               "x22: %016llx\t%016llx\n"
-               "x23: %016llx\t%016llx\n"
-               "x24: %016llx\t%016llx\n"
-               "x25: %016llx\t%016llx\n"
-               "x26: %016llx\t%016llx\n"
-               "x27: %016llx\t%016llx\n"
-               "x28: %016llx\t%016llx\n"
-               "x29: %016llx\t%016llx\n"
-               "x30: %016llx\t%016llx\n",
+               "x16:    %016llx\t%016llx\n"
+               "x17:    %016llx\t%016llx\n"
+               "x18:    %016llx\t%016llx\n"
+               "x19:    %016llx\t%016llx\n"
+               "x20:    %016llx\t%016llx\n"
+               "x21:    %016llx\t%016llx\n"
+               "x22:    %016llx\t%016llx\n"
+               "x23:    %016llx\t%016llx\n"
+               "x24:    %016llx\t%016llx\n"
+               "x25:    %016llx\t%016llx\n"
+               "x26:    %016llx\t%016llx\n"
+               "x27:    %016llx\t%016llx\n"
+               "x28:    %016llx\t%016llx\n"
+               "x29:    %016llx\t%016llx\n"
+               "x30:    %016llx\t%016llx\n",
                result->regs_before.regs[16], result->regs_after.regs[16],
                result->regs_before.regs[17], result->regs_after.regs[17],
                result->regs_before.regs[18], result->regs_after.regs[18],
@@ -702,8 +703,8 @@ void print_execution_result(execution_result *result)
                result->regs_before.regs[29], result->regs_after.regs[29],
                result->regs_before.regs[30], result->regs_after.regs[30]);
         printf(""
-               "sp: %016llx\t%016llx\n"
-               "pc: %016llx\t%016llx\n"
+               "sp:     %016llx\t%016llx\n"
+               "pc:     %016llx\t%016llx\n"
                "pstate: %016llx\t%016llx\n",
                result->regs_before.sp, result->regs_after.sp,
                result->regs_before.pc, result->regs_after.pc,
@@ -1117,12 +1118,59 @@ int main(int argc, char **argv)
             if (log_fp != NULL) {
                 if (use_ptrace) {
 #ifdef __aarch64__
-#else
+                    unsigned long long *regs0 = exec_result.regs_before.regs;
+                    unsigned long long *regs1 = exec_result.regs_after.regs;
 
+                    fprintf(log_fp, "%08" PRIx32 ",hidden,%d,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,",
+                                    curr_insn, exec_result.signal,
+                                    regs0[0], regs1[0],
+                                    regs0[1], regs1[1],
+                                    regs0[2], regs1[2],
+                                    regs0[3], regs1[3],
+                                    regs0[4], regs1[4],
+                                    regs0[5], regs1[5],
+                                    regs0[6], regs1[6],
+                                    regs0[7], regs1[7],
+                                    regs0[8], regs1[8],
+                                    regs0[9], regs1[9],
+                                    regs0[10], regs1[10],
+                                    regs0[11], regs1[11],
+                                    regs0[12], regs1[12],
+                                    regs0[13], regs1[13],
+                                    regs0[14], regs1[14],
+                                    regs0[15], regs1[15]);
+                    fprintf(log_fp, "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,%llx-%llx,"
+                                    "%llx-%llx,%llx-%llx,%llx-%llx,",
+                                    regs0[16], regs1[16],
+                                    regs0[17], regs1[17],
+                                    regs0[18], regs1[18],
+                                    regs0[19], regs1[19],
+                                    regs0[20], regs1[20],
+                                    regs0[21], regs1[21],
+                                    regs0[22], regs1[22],
+                                    regs0[23], regs1[23],
+                                    regs0[24], regs1[24],
+                                    regs0[25], regs1[25],
+                                    regs0[26], regs1[26],
+                                    regs0[27], regs1[27],
+                                    regs0[28], regs1[28],
+                                    regs0[29], regs1[29],
+                                    regs0[30], regs1[30]);
+                    fprintf(log_fp, "%llx-%llx,%llx-%llx,%llx-%llx\n",
+                                    exec_result.regs_before.sp, exec_result.regs_after.sp,
+                                    exec_result.regs_before.pc, exec_result.regs_after.pc,
+                                    exec_result.regs_before.pstate, exec_result.regs_after.pstate);
+#else
                     unsigned long *regs0 = exec_result.regs_before.uregs;
                     unsigned long *regs1 = exec_result.regs_after.uregs;
 
-                    fprintf(log_fp, "%08" PRIx32",hidden,%d,"
+                    fprintf(log_fp, "%08" PRIx32 ",hidden,%d,"
                                     "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
                                     "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
                                     "%lx-%lx,%lx-%lx,%lx-%lx,%lx-%lx,"
