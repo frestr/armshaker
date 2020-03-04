@@ -1,5 +1,4 @@
 #include "filter.h"
-#include <stdio.h>
 
 struct opcode
 {
@@ -12,6 +11,15 @@ struct opcode
 static const struct opcode base_opcodes[] =
 {
 #ifdef __aarch64__
+    /*
+     * The issue with including SBO/SBZ bits in the insn value
+     * isn't as prevalent in aarch64, and the cases where it actually
+     * happens (like ldar and ldarb), capstone manages to disassemble
+     * them, thus masking over the issue.
+     *
+     * Would be nice to have the table here still for completeness,
+     * but it's frankly too much work with little gain as it stands.
+     */
 #else
     {0xe1a00000, 0xffffffff, 0, "nop\t\t\t; (mov r0, r0)"},
     {0xe7f000f0, 0xfff000f0, 0, "udf\t#%e"},
@@ -475,7 +483,6 @@ static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes)
     return false;
 }
 
-#ifdef __aarch64__
 /*
  * Mostly taken from binutils/opcodes/aarch64-opc.c
  * In essence, this checks whether the ldpsw verifier in libopcodes
@@ -483,6 +490,7 @@ static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes)
  */
 static bool is_unpredictable_ldpsw(uint32_t insn)
 {
+#ifdef __aarch64__
 #define BIT(INSN,BT)     (((INSN) >> (BT)) & 1)
 #define BITS(INSN,HI,LO) (((INSN) >> (LO)) & ((1 << (((HI) - (LO)) + 1)) - 1))
 
@@ -511,15 +519,49 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
     }
 
     return false;
-}
+#else
+    // No ldpsw instruction in aarch32
+    (void)insn;
+    return false;
 #endif
+}
+
+/*
+ * Linux configures traps on certain undefined instructions, namely
+ * 'udf #16' (e7f001f0), but without regarding the condition prefix.
+ * (See Linux source, arch/arm/kernel/ptrace.c:213)
+ *
+ * This makes instructions [0-9a-f]7f001f0 raise SIGTRAP signals instead
+ * of the normal SIGILL, which makes the fuzzer then (incorrectly) mark
+ * them as hidden.
+ *
+ * I think that strictly speaking, Linux shouldn't hook on the instructions
+ * with a prefix different than e, as the manual doesn't guarantee that
+ * these instructions will be permanently undefined, but rather that
+ * they are unallocated.
+ *
+ * Still, we're not interested in finding instructions 'trapped' by
+ * Linux, so filter them away.
+ */
+static bool is_undef_breakpoint(uint32_t insn)
+{
+#ifdef __aarch64__
+    // No undef hooks on breakpoints in aarch64
+    (void)insn;
+    return false;
+#else
+    // udf #16 with arbitrary cond prefix
+    return ((insn & 0x0fffffff) == 0x07f001f0);
+#endif
+}
 
 bool filter_instruction(uint32_t insn)
 {
-#ifdef __aarch64__
     if (is_unpredictable_ldpsw(insn))
         return true;
-#endif
+
+    if (is_undef_breakpoint(insn))
+        return true;
 
     if (has_incorrect_sb_bits(insn, base_opcodes)
             || has_incorrect_sb_bits(insn, extra_opcodes))
