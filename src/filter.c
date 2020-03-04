@@ -20,6 +20,7 @@ static const struct opcode base_opcodes[] =
      * Would be nice to have the table here still for completeness,
      * but it's frankly too much work with little gain as it stands.
      */
+    {0x00000000, 0x00000000, 0, 0}
 #else
     {0xe1a00000, 0xffffffff, 0, "nop\t\t\t; (mov r0, r0)"},
     {0xe7f000f0, 0xfff000f0, 0, "udf\t#%e"},
@@ -367,6 +368,7 @@ static const struct opcode base_opcodes[] =
 static const struct opcode extra_opcodes[] =
 {
 #ifdef __aarch64__
+    {0x00000000, 0x00000000, 0, 0}
 #else
     /*
      * Most of the FPU and SIMD instructions don't have any SBO/SBZ bits,
