@@ -100,13 +100,11 @@ typedef struct {
 } execution_result;
 
 void *insn_buffer;
-volatile sig_atomic_t last_insn_illegal = 0;
-volatile sig_atomic_t last_insn_segfault = 0;
+volatile sig_atomic_t last_insn_signum = 0;
 volatile sig_atomic_t executing_insn = 0;
 uint32_t insn_offset = 0;
 
-void sigill_handler(int, siginfo_t*, void*);
-void sigsegv_handler(int, siginfo_t*, void*);
+void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
@@ -124,43 +122,23 @@ void print_help(char*);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
 
-void sigill_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
+void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 {
     // Suppress unused warning
     (void)sig_info;
 
     ucontext_t* uc = (ucontext_t*) uc_ptr;
 
-    assert(sig_num == SIGILL);
-    last_insn_illegal = 1;
-
-    // Jump to the next instruction (i.e. skip the illegal insn)
-    uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
-
-#ifdef __aarch64__
-    uc->uc_mcontext.pc = insn_skip;
-#else
-    uc->uc_mcontext.arm_pc = insn_skip;
-#endif
-}
-
-void sigsegv_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
-{
-    // Suppress unused warning
-    (void)sig_info;
+    last_insn_signum = sig_num;
 
     if (executing_insn == 0) {
-        // Something other than a hidden insn execution caused the segfault,
+        // Something other than a hidden insn execution raised the signal,
         // so quit
-        fprintf(stderr, "Segmentation fault.");
+        fprintf(stderr, "%s\n", strsignal(sig_num));
         exit(1);
     }
 
-    ucontext_t* uc = (ucontext_t*) uc_ptr;
-
-    if (sig_num == SIGSEGV)
-        last_insn_segfault = 1;
-
+    // Jump to the next instruction (i.e. skip the illegal insn)
     uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
 
 #ifdef __aarch64__
@@ -915,9 +893,9 @@ int main(int argc, char **argv)
 		return 1;
     }
 
-    init_signal_handler(sigill_handler, SIGILL);
-    init_signal_handler(sigsegv_handler, SIGSEGV);
-    init_signal_handler(sigsegv_handler, SIGTRAP);
+    init_signal_handler(signal_handler, SIGILL);
+    init_signal_handler(signal_handler, SIGSEGV);
+    init_signal_handler(signal_handler, SIGTRAP);
 
     // Allocate an executable page / memory region
     insn_buffer = mmap(NULL,
@@ -1084,8 +1062,7 @@ int main(int argc, char **argv)
                 break;
             }
 
-            last_insn_illegal = (exec_result.signal == SIGILL);
-            last_insn_segfault = (exec_result.signal == SIGSEGV);
+            last_insn_signum = exec_result.signal;
             if (print_regs)
                 print_execution_result(&exec_result);
         } else {
@@ -1093,8 +1070,7 @@ int main(int argc, char **argv)
             /* *((uint32_t*)insn_buffer) = curr_insn; */
             ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
 
-            last_insn_illegal = 0;
-            last_insn_segfault = 0;
+            last_insn_signum = 0;
 
             /*
              * Clear insn_buffer (at the insn to be tested)
@@ -1112,7 +1088,7 @@ int main(int argc, char **argv)
             executing_insn = 0;
         }
 
-        if (!last_insn_illegal) {
+        if (last_insn_signum != SIGILL) {
             log_fp = fopen(log_path, "a");
 
             if (log_fp != NULL) {
@@ -1196,7 +1172,8 @@ int main(int argc, char **argv)
                                     regs0[ARM_cpsr], regs1[ARM_cpsr]);
 #endif
                 } else {
-                    fprintf(log_fp, "%08" PRIx32 ",hidden\n", curr_insn);
+                    fprintf(log_fp, "%08" PRIx32 ",hidden,%d\n",
+                                    curr_insn, last_insn_signum);
                 }
                 fclose(log_fp);
             }
