@@ -194,12 +194,6 @@ void execution_boilerplate(void)
             /*
              * Reset the regs to make insn execution deterministic
              * and avoid program corruption.
-             *
-             * If I read Arm ARM correctly, the max offset for register loads are
-             * 12 bits, which equals one page (4096 bytes). Because of negative
-             * offsets, the mem acces range from 1 to 2*4096, if the regs are
-             * initalized to 4096. This makes it easier to distinguish segfaults
-             * caused by hidden instructions from other segfaults.
              */
             "mov x0, %[reg_init]        \n"
             "mov x1, %[reg_init]        \n"
@@ -261,7 +255,7 @@ void execution_boilerplate(void)
             ".global boilerplate_end    \n"
             "boilerplate_end:           \n"
             :
-            : [reg_init] "n" (PAGE_SIZE)
+            : [reg_init] "n" (0)
             );
 #else
     asm volatile(
@@ -271,6 +265,11 @@ void execution_boilerplate(void)
             // Store all gregs
             "push {r0-r12, lr}          \n"
 
+            /*
+             * It's better to use ptrace in cases where the sp might
+             * be corrupted, but storing the sp in a vector reg
+             * mitigates the issue somewhat.
+             */
             "vmov s0, sp                \n"
 
             // Reset the regs to make insn execution deterministic
@@ -292,7 +291,7 @@ void execution_boilerplate(void)
             // Setting the sp to 0 seems to mess up the
             // signal handling
             /* "mov sp, %[reg_init]        \n" */
-            "msr cpsr_cxsf, #0x10            \n"
+            "msr cpsr_cxsf, #0x10       \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
@@ -300,7 +299,7 @@ void execution_boilerplate(void)
             // This instruction will be replaced with the one to be tested
             "nop                        \n"
 
-            "msr cpsr_cxsf, #0x10            \n"
+            "msr cpsr_cxsf, #0x10       \n"
             "vmov sp, s0                \n"
 
             // Restore all gregs
@@ -1051,8 +1050,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // Update the first instruction in the instruction buffer
-        /* *((uint32_t*)insn_buffer) = curr_insn; */
         execution_result exec_result = {0};
         if (use_ptrace) {
             execute_insn_slave(&slave_pid, curr_insn, &exec_result);
@@ -1067,7 +1064,6 @@ int main(int argc, char **argv)
                 print_execution_result(&exec_result);
         } else {
             // Update the first instruction in the instruction buffer
-            /* *((uint32_t*)insn_buffer) = curr_insn; */
             ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
 
             last_insn_signum = 0;
