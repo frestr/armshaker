@@ -51,7 +51,7 @@
 #endif
 
 // Increment bits in x indicated by the mask m
-#define MASKED_INCREMENT(x, m) (x = (x & ~m) | (((x | ~m) + 1) & m))
+#define MASKED_INCREMENT(x, m) ((x & ~m) | (((x | ~m) + 1) & m))
 
 void *insn_buffer;
 volatile sig_atomic_t last_insn_signum = 0;
@@ -63,12 +63,17 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
-int libopcodes_disassemble(uint32_t, char*, size_t);
+uint32_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
+int libopcodes_disassemble(uint32_t, bool, char*, size_t);
+int capstone_disassemble(uint32_t, bool, char*, size_t, csh*);
 void slave_loop(void);
-pid_t spawn_slave(void);
+void slave_loop_thumb(void);
+pid_t spawn_slave(bool);
 int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
-void execute_insn_slave(pid_t*, uint32_t, execution_result*);
+void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, execution_result*);
+bool is_thumb32(uint32_t);
+uint64_t get_next_instruction(uint64_t, uint64_t, bool);
 void print_help(char*);
 
 extern char boilerplate_start, boilerplate_end, insn_location;
@@ -309,7 +314,38 @@ int disas_sprintf(void *stream, const char *fmt, ...) {
     return 0;
 }
 
-int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size) {
+/*
+ * Fill buf with the the bytes in insn, taking into account
+ * that ARM uses little-endian, and that in Thumb (both 16-bit
+ * and 32-bit), a word is 16-bit long.
+ *
+ * Return the buffer length
+ */
+uint32_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn, bool thumb)
+{
+    if (buf_size < 4)
+        return -1;
+
+    if (thumb) {
+        buf[0] = (insn >> 16) & 0xff;
+        buf[1] = (insn >> 24) & 0xff;
+
+        if (is_thumb32(insn)) {
+            buf[2] = insn & 0xff;
+            buf[3] = (insn >> 8) & 0xff;
+        } else {
+            return 2;
+        }
+    } else {
+        buf[0] = insn & 0xff;
+        buf[1] = (insn >> 8) & 0xff;
+        buf[2] = (insn >> 16) & 0xff;
+        buf[3] = (insn >> 24) & 0xff;
+    }
+    return 4;
+}
+
+int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disas_str_size) {
     stream_state ss = {};
 
     // Set up the disassembler
@@ -325,9 +361,15 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
 #endif
 
     disasm_info.read_memory_func = buffer_read_memory;
-    disasm_info.buffer = (uint8_t*)&insn;
+    uint8_t insn_bytes[4];
+    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes), insn, thumb);
+    disasm_info.buffer = insn_bytes;
+    disasm_info.buffer_length = buf_length;
     disasm_info.buffer_vma = 0;
-    disasm_info.buffer_length = 4;
+
+    if (thumb)
+        disasm_info.disassembler_options = "force-thumb";
+
     disassemble_init_for_target(&disasm_info);
 
     disassembler_ftype disasm;
@@ -335,7 +377,11 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
 
     // Actually do the disassembly
     size_t insn_size = disasm(0, &disasm_info);
-    assert(insn_size == 4);
+    if (thumb && !is_thumb32(insn)) {
+        assert(insn_size == 2);
+    } else {
+        assert(insn_size == 4);
+    }
 
     // Store the resulting stsring
     snprintf(disas_str, disas_str_size, "%s", ss.buffer);
@@ -343,7 +389,24 @@ int libopcodes_disassemble(uint32_t insn, char *disas_str, size_t disas_str_size
     ss.reenter = false;
     free(ss.buffer);
 
-    return 0;
+    return insn_size;
+}
+
+int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disas_str_size, csh *handle)
+{
+    cs_insn *capstone_insn;
+    uint8_t insn_bytes[4];
+    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes), insn, thumb);
+    size_t capstone_count = cs_disasm(*handle, insn_bytes, buf_length, 0, 0, &capstone_insn);
+    if (capstone_count > 0) {
+        snprintf(disas_str,
+                 disas_str_size,
+                 "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
+        cs_free(capstone_insn, capstone_count);
+    } else {
+        strcpy(disas_str, "invalid assembly code");
+    }
+    return capstone_count;
 }
 
 void slave_loop(void)
@@ -365,12 +428,31 @@ void slave_loop(void)
 
 }
 
-pid_t spawn_slave(void)
+__attribute__((target("thumb")))
+void slave_loop_thumb(void)
+{
+#ifdef __aarch64__
+    return;
+#else
+    asm volatile(
+            "loopt:     \n"
+            "   udf #1  \n" // Linux-reserved bkpt
+            "   nop.w   \n" // 32-bit wide nop
+            "   b loopt \n"
+            );
+#endif
+}
+
+
+pid_t spawn_slave(bool thumb)
 {
     pid_t slave_pid = fork();
     if (slave_pid == 0) {
         ptrace(PTRACE_TRACEME, 0, NULL, NULL);
-        slave_loop();
+        if (thumb)
+            slave_loop_thumb();
+        else
+            slave_loop();
     }
     int status;
     waitpid(slave_pid, &status, 0);
@@ -397,7 +479,7 @@ int custom_ptrace_setregs(pid_t pid, struct USER_REGS_TYPE *regs)
 #endif
 }
 
-void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *result)
+void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, execution_result *result)
 {
     int status;
 
@@ -420,8 +502,29 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     unsigned long *regs_ptr = regs.uregs;
 #endif
 
-    if (insn_loc == 0)
-        insn_loc = *pc_reg + 4;
+    if (insn_loc == 0) {
+        if (thumb)
+            insn_loc = *pc_reg + 2;
+        else
+            insn_loc = *pc_reg + 4;
+    }
+
+    uint32_t insn;
+    if (thumb && insn_length == 2) {
+        /*
+         * If the insn length is two, we have a 16-bit thumb instruction
+         * In those cases, add a nop (bf00) as the second half-word
+         */
+        insn = insn_bytes[0]
+                | (insn_bytes[1] << 8)
+                | (0x00 << 16)
+                | (0xbf << 24);
+    } else {
+        insn = insn_bytes[0]
+                | (insn_bytes[1] << 8)
+                | (insn_bytes[2] << 16)
+                | (insn_bytes[3] << 24);
+    }
 
 #ifdef __aarch64__
     /*
@@ -440,8 +543,6 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
         perror("poketext failed");
     }
 
-    result->insn = insn;
-
     // Reset all regs
     memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
     *pc_reg = insn_loc;
@@ -450,6 +551,8 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     regs.pstate = 0;
 #else
     regs.uregs[ARM_cpsr] = 0x10;  // user mode
+    if (thumb)
+        regs.uregs[ARM_cpsr] |= 0x20;   // Thumb execution
 #endif
     if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
         perror("setregs failed");
@@ -500,6 +603,40 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint32_t insn, execution_result *r
     }
 }
 
+/*
+ * Checks whether the supplied instruction is a 32-bit long
+ * instruction (thumb2) or not.
+ *
+ * This can be deduced from the instruction prefix, which
+ * is 0b11101 (0x1d), 0b11110 (0x1e) or 0b11111 (0x1f) in
+ * those cases.
+ */
+bool is_thumb32(uint32_t insn)
+{
+    uint16_t upper = (insn >> 16) & 0xffff;
+    uint8_t prefix = (upper >> 11) & 0x1f;
+    return prefix >= 0x1d && prefix <= 0x1f;
+}
+
+/*
+ * Returns the next instruction based on the current one, taking
+ * the instruction mask and thumb execution into account.
+ *
+ * The insn and mask are 64-bit to prevent overflow, such that the
+ * caller can check whether the instruction is out of bounds.
+ */
+uint64_t get_next_instruction(uint64_t insn, uint64_t mask, bool thumb)
+{
+    if (thumb && !is_thumb32(insn & 0xffffffff)) {
+        /*
+         * Increment upper half, including the "extended" bits
+         * and taking the supplied mask into account
+         */
+        mask &= 0xffffffffffff0000;
+    }
+    return MASKED_INCREMENT(insn, mask);
+}
+
 struct option long_options[] = {
     {"help",            no_argument,        NULL, 'h'},
     {"start",           required_argument,  NULL, 's'},
@@ -513,7 +650,8 @@ struct option long_options[] = {
     {"print-regs",      no_argument,        NULL, 'r'},
     {"single-exec",     no_argument,        NULL, 'i'},
     {"filter",          no_argument,        NULL, 'f'},
-    {"mask",            required_argument,  NULL, 'm'}
+    {"mask",            required_argument,  NULL, 'm'},
+    {"thumb",           no_argument,        NULL, 't'}
 };
 
 void print_help(char *cmd_name)
@@ -545,7 +683,8 @@ Options:\n\
                                 (Mainly instructions with incorrect SBO/SBZ bits.)\n\
         -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
                                 Useful for testing different operands on a single instruction.\n\
-                                Example: 0xf0000000 -> only increment most significant nibble\n"
+                                Example: 0xf0000000 -> only increment most significant nibble\n\
+        -t, --thumb             Use the thumb instruction set (only available on AArch32).\n"
     );
 }
 
@@ -562,11 +701,12 @@ int main(int argc, char **argv)
     bool print_regs = false;
     bool single_insn = false;
     bool do_filter = false;
+    bool thumb_exec = false;
 
     char *file_suffix = NULL;
     char *endptr;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:t", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -628,6 +768,14 @@ int main(int argc, char **argv)
                  */
                 insn_mask = 0xffffffff00000000 | (insn_mask & 0xffffffff);
                 break;
+            case 't':
+#ifdef __aarch64__
+                fprintf(stderr, "Thumb execution is only available on AArch32.\n");
+                return 1;
+#else
+                thumb_exec = true;
+#endif
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
@@ -639,7 +787,7 @@ int main(int argc, char **argv)
 
     pid_t slave_pid = 0;
     if (use_ptrace)
-        slave_pid = spawn_slave();
+        slave_pid = spawn_slave(thumb_exec);
 
     char *log_path;
     if (asprintf(&log_path, "%s%s", "data/log", file_suffix == NULL ? "" : file_suffix) == -1) {
@@ -660,12 +808,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
-	csh handle;
-	cs_insn *capstone_insn;
+	csh cs_handle;
 
 	if (cs_open(CAPSTONE_ARCH,
-                CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN,
-                &handle) != CS_ERR_OK) {
+                CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN + (thumb_exec ? CS_MODE_THUMB : 0),
+                &cs_handle) != CS_ERR_OK) {
         fprintf(stderr, "ERROR: Unable to load capstone\n");
 		return 1;
     }
@@ -728,27 +875,29 @@ int main(int argc, char **argv)
     char cs_str[256] = {0};
     char libopcodes_str[256] = {0};
 
-    uint32_t curr_insn;
+    uint32_t curr_insn = insn_range_start & 0xffffffff;
     search_status curr_status = {0};
 
-    for (uint64_t i = insn_range_start; i <= insn_range_end; MASKED_INCREMENT(i, insn_mask)) {
+    for (uint64_t i = insn_range_start;
+            i <= insn_range_end;
+            i = get_next_instruction(i, insn_mask, thumb_exec)) {
         curr_insn = i & 0xffffffff;
 
         // Check if capstone thinks the instruction is undefined
-        size_t capstone_count = cs_disasm(handle, (uint8_t*)&curr_insn, sizeof(curr_insn), 0, 0, &capstone_insn);
-        bool capstone_undefined = (capstone_count == 0);
-        if (capstone_count > 0) {
-            snprintf(cs_str,
-                     sizeof(cs_str),
-                     "%s\t%s", capstone_insn[0].mnemonic, capstone_insn[0].op_str);
-            cs_free(capstone_insn, capstone_count);
-        } else {
-            strcpy(cs_str, "invalid assembly code");
-        }
+        int capstone_ret = capstone_disassemble(curr_insn,
+                                                thumb_exec,
+                                                cs_str,
+                                                sizeof(cs_str),
+                                                &cs_handle);
+
+        bool capstone_undefined = (capstone_ret == 0);
 
         // Now check what libopcodes thinks
-        int libopcodes_ret = libopcodes_disassemble(curr_insn, libopcodes_str, sizeof(libopcodes_str));
-        if (libopcodes_ret != 0) {
+        int libopcodes_ret = libopcodes_disassemble(curr_insn,
+                                                    thumb_exec,
+                                                    libopcodes_str,
+                                                    sizeof(libopcodes_str));
+        if (libopcodes_ret == 0) {
             fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
             return 1;
         }
@@ -828,9 +977,20 @@ int main(int argc, char **argv)
             continue;
         }
 
+        uint8_t insn_bytes[4];
+        size_t buf_length = fill_insn_buffer(insn_bytes,
+                                             sizeof(insn_bytes),
+                                             curr_insn,
+                                             thumb_exec);
+
+        if (thumb_exec && !is_thumb32(curr_insn)) {
+            insn_bytes[2] = 0;
+            insn_bytes[3] = 0;
+        }
+
         execution_result exec_result = {0};
         if (use_ptrace) {
-            execute_insn_slave(&slave_pid, curr_insn, &exec_result);
+            execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb_exec, &exec_result);
 
             if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
@@ -841,8 +1001,11 @@ int main(int argc, char **argv)
             if (print_regs)
                 print_execution_result(&exec_result);
         } else {
+            // XXX: Thumb exec is only supported with ptrace so far
+            assert(!thumb_exec);
+
             // Update the first instruction in the instruction buffer
-            ((uint32_t*)insn_buffer)[insn_offset] = curr_insn;
+            memcpy(insn_buffer + insn_offset * 4, insn_bytes, buf_length);
 
             last_insn_signum = 0;
 
@@ -861,9 +1024,10 @@ int main(int argc, char **argv)
 
             executing_insn = 0;
 
-            exec_result.insn = curr_insn;
             exec_result.signal = last_insn_signum;
         }
+
+        exec_result.insn = curr_insn;
 
         if (last_insn_signum != SIGILL) {
             if (write_logfile(log_path, &exec_result, use_ptrace) == -1) {
@@ -897,7 +1061,7 @@ int main(int argc, char **argv)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, PAGE_SIZE);
-    cs_close(&handle);
+    cs_close(&cs_handle);
     free(log_path);
 
     return 0;

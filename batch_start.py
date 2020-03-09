@@ -26,6 +26,9 @@ def get_status(proc_num):
         try:
             key, val = line.split(':', maxsplit=1)
         except ValueError:
+            if line == '\n':
+                # Skip empty lines
+                continue
             print("ERROR: Ill-formatted statusfile")
             return None
         status[key] = val.replace('\t', ' ').strip()
@@ -191,6 +194,7 @@ def start_procs(search_range, args):
                '-p' if args.ptrace else '',
                '-n' if args.no_exec else '',
                '-f' if args.filter else '',
+               '-t' if args.thumb else '',
                '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
@@ -318,6 +322,10 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--filter',
                         action='store_true',
                         help='Filter certain instructions')
+    parser.add_argument('-t', '--thumb',
+                        action='store_true',
+                        help='Use the thumb instruction set (only on AArch32).')
+
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
