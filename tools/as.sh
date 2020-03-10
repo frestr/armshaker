@@ -25,5 +25,5 @@ if [[ $? -eq 1 ]]; then
     exit 1
 fi
 
-objdump -d "$file" | tail -n1 | awk '{print $2}'
+objdump -d "$file" | tail -n1 | awk -F'\t' '{print $2}' | tr -d ' '
 rm $file

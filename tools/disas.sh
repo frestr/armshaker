@@ -9,10 +9,23 @@ if [[ $# -eq 0 || ! "$1" =~ ^(0x)?(([0-9a-f]{4}){1,2})$ ]]; then
 fi
 
 insn=${BASH_REMATCH[2]}
+
 bytes=("${insn:0:2}" "${insn:2:2}" "${insn:4:2}" "${insn:6:2}")
 
+if [[ "$2" = "-t" ]]; then
+    if [[ ${bytes[2]} = "" ]]; then
+        # We have a thumb (16-bit) insn
+        bytestring="\x${bytes[1]}\x${bytes[0]}"
+    else
+        # Middle endian...
+        bytestring="\x${bytes[1]}\x${bytes[0]}\x${bytes[3]}\x${bytes[2]}"
+    fi
+else
+    bytestring="\x${bytes[3]}\x${bytes[2]}\x${bytes[1]}\x${bytes[0]}"
+fi
+
 file=$(mktemp)
-echo -ne "\x${bytes[3]}\x${bytes[2]}\x${bytes[1]}\x${bytes[0]}" > $file
+echo -ne "$bytestring" > $file
 
 if [[ "$(uname -m)" =~ "arm" ]]; then
     arch="arm"
@@ -24,9 +37,10 @@ else
 fi
 
 ob=$(objdump -b binary -m $arch -D $file $obj_thumb \
-     | tail -n1 \
-     | awk '{$1=$2=""; print $0}' \
-     | cut -c3-)
+     | grep '0:' \
+     | awk -F'\t' '{$1=$2=""; print $0}' \
+     | cut -c3- \
+     | awk '{print $0}')
 echo -e "ob:\t$ob"
 
 if [[ "$arch" = "aarch64" ]]; then
@@ -35,15 +49,15 @@ elif [[ "$2" = "-t" ]]; then
     arch="thumb"
 fi
 
-cs=$(cstool $arch "${bytes[3]} ${bytes[2]} ${bytes[1]} ${bytes[0]}")
+cs=$(cstool $arch "$bytestring")
 
 if [[ "$cs" = "" || "$cs" =~ "ERROR" ]]; then
     cs="ERROR: invalid assembly code"
 else
     if [[ "$arch" = "thumb" ]]; then
         cs=$(echo "$cs" \
-             | awk '{$1=$2=$3=""; print $0}' \
-             | cut -c4-)
+             | awk -F'  ' '{$1=$2=""; print $0}' \
+             | cut -c3-)
     else
         cs=$(echo "$cs" \
              | awk '{$1=$2=$3=$4=$5=""; print $0}' \
