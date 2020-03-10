@@ -1,4 +1,38 @@
+/* Instruction printing code for the ARM
+   Copyright (C) 1994-2020 Free Software Foundation, Inc.
+   Contributed by Richard Earnshaw (rwe@pegasus.esprit.ec.org)
+   Modification by James G. Smith (jsmith@cygnus.co.uk)
+   Modification by Fredrik Strupe (fredrik@strupe.net)
+
+   This file is part of libopcodes.
+
+   This library is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 3 of the License, or
+   (at your option) any later version.
+
+   It is distributed in the hope that it will be useful, but WITHOUT
+   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+   License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
+   MA 02110-1301, USA.  */
+
+
+/*
+ * More specifically, the following opcode tables are modified versions
+ * of the ones found in binutils/opcodes/arm-dis.c and
+ * binutils/opcodes/aarch64-opc.c
+ *
+ * Some of the disassembly code is also a modified version of what
+ * is found in those files.
+ */
+
 #include "filter.h"
+#include "util.h"
 
 struct opcode
 {
@@ -8,6 +42,11 @@ struct opcode
     const char *disassembly;
 };
 
+/*
+ * The following opcode tables are modified version of the ones found
+ * in libopcodes. Namely, some unneeded information like feature
+ * versions are removed, and SBO/SBZ bit masks have been added.
+ */
 static const struct opcode base_opcodes[] =
 {
 #ifdef __aarch64__
@@ -365,7 +404,7 @@ static const struct opcode base_opcodes[] =
 #endif
 };
 
-static const struct opcode extra_opcodes[] =
+static const struct opcode coproc_opcodes[] =
 {
 #ifdef __aarch64__
     {0x00000000, 0x00000000, 0, 0}
@@ -457,6 +496,104 @@ static const struct opcode extra_opcodes[] =
 #endif
 };
 
+static const struct opcode thumb16_opcodes[] =
+{
+    {0x4784, 0xff87, 0, "blxns\t%3-6r"},
+    {0x4704, 0xff87, 0, "bxns\t%3-6r"},
+    {0xbf50, 0xffff, 0, "sevl%c"},
+    {0xba80, 0xffc0, 0, "hlt\t%0-5x"},
+    {0xb610, 0xfff7, 0x0017, "setpan\t#%3-3d"},
+    {0xbf00, 0xffff, 0, "nop%c"},
+    {0xbf10, 0xffff, 0, "yield%c"},
+    {0xbf20, 0xffff, 0, "wfe%c"},
+    {0xbf30, 0xffff, 0, "wfi%c"},
+    {0xbf40, 0xffff, 0, "sev%c"},
+    {0xbf00, 0xff0f, 0, "nop%c\t{%4-7d}"},
+    {0xb900, 0xfd00, 0, "cbnz\t%0-2r, %b%X"},
+    {0xb100, 0xfd00, 0, "cbz\t%0-2r, %b%X"},
+    {0xbf00, 0xff00, 0, "it%I%X"},
+    {0xb660, 0xfff8, 0x0008, "cpsie\t%2'a%1'i%0'f%X"},
+    {0xb670, 0xfff8, 0x0008, "cpsid\t%2'a%1'i%0'f%X"},
+    {0x4600, 0xffc0, 0, "mov%c\t%0-2r, %3-5r"},
+    {0xba00, 0xffc0, 0, "rev%c\t%0-2r, %3-5r"},
+    {0xba40, 0xffc0, 0, "rev16%c\t%0-2r, %3-5r"},
+    {0xbac0, 0xffc0, 0, "revsh%c\t%0-2r, %3-5r"},
+    {0xb650, 0xfff7, 0x0017, "setend\t%3?ble%X"},
+    {0xb200, 0xffc0, 0, "sxth%c\t%0-2r, %3-5r"},
+    {0xb240, 0xffc0, 0, "sxtb%c\t%0-2r, %3-5r"},
+    {0xb280, 0xffc0, 0, "uxth%c\t%0-2r, %3-5r"},
+    {0xb2c0, 0xffc0, 0, "uxtb%c\t%0-2r, %3-5r"},
+    {0xbe00, 0xff00, 0, "bkpt\t%0-7x"},
+    {0x4780, 0xff87, 0x0007, "blx%c\t%3-6r%x"},
+    {0x46c0, 0xffff, 0, "nop%c\t\t\t; (mov r8, r8)"},
+    {0x4000, 0xffc0, 0, "and%C\t%0-2r, %3-5r"},
+    {0x4040, 0xffc0, 0, "eor%C\t%0-2r, %3-5r"},
+    {0x4080, 0xffc0, 0, "lsl%C\t%0-2r, %3-5r"},
+    {0x40c0, 0xffc0, 0, "lsr%C\t%0-2r, %3-5r"},
+    {0x4100, 0xffc0, 0, "asr%C\t%0-2r, %3-5r"},
+    {0x4140, 0xffc0, 0, "adc%C\t%0-2r, %3-5r"},
+    {0x4180, 0xffc0, 0, "sbc%C\t%0-2r, %3-5r"},
+    {0x41c0, 0xffc0, 0, "ror%C\t%0-2r, %3-5r"},
+    {0x4200, 0xffc0, 0, "tst%c\t%0-2r, %3-5r"},
+    {0x4240, 0xffc0, 0, "neg%C\t%0-2r, %3-5r"},
+    {0x4280, 0xffc0, 0, "cmp%c\t%0-2r, %3-5r"},
+    {0x42c0, 0xffc0, 0, "cmn%c\t%0-2r, %3-5r"},
+    {0x4300, 0xffc0, 0, "orr%C\t%0-2r, %3-5r"},
+    {0x4340, 0xffc0, 0, "mul%C\t%0-2r, %3-5r"},
+    {0x4380, 0xffc0, 0, "bic%C\t%0-2r, %3-5r"},
+    {0x43c0, 0xffc0, 0, "mvn%C\t%0-2r, %3-5r"},
+    {0xb000, 0xff80, 0, "add%c\tsp, #%0-6W"},
+    {0xb080, 0xff80, 0, "sub%c\tsp, #%0-6W"},
+    {0x4700, 0xff80, 0x0007, "bx%c\t%S%x"},
+    {0x4400, 0xff00, 0, "add%c\t%D, %S"},
+    {0x4500, 0xff00, 0, "cmp%c\t%D, %S"},
+    {0x4600, 0xff00, 0, "mov%c\t%D, %S"},
+    {0xb400, 0xfe00, 0, "push%c\t%N"},
+    {0xbc00, 0xfe00, 0, "pop%c\t%O"},
+    {0x1800, 0xfe00, 0, "add%C\t%0-2r, %3-5r, %6-8r"},
+    {0x1a00, 0xfe00, 0, "sub%C\t%0-2r, %3-5r, %6-8r"},
+    {0x1c00, 0xfe00, 0, "add%C\t%0-2r, %3-5r, #%6-8d"},
+    {0x1e00, 0xfe00, 0, "sub%C\t%0-2r, %3-5r, #%6-8d"},
+    {0x5200, 0xfe00, 0, "strh%c\t%0-2r, [%3-5r, %6-8r]"},
+    {0x5a00, 0xfe00, 0, "ldrh%c\t%0-2r, [%3-5r, %6-8r]"},
+    {0x5600, 0xf600, 0, "ldrs%11?hb%c\t%0-2r, [%3-5r, %6-8r]"},
+    {0x5000, 0xfa00, 0, "str%10'b%c\t%0-2r, [%3-5r, %6-8r]"},
+    {0x5800, 0xfa00, 0, "ldr%10'b%c\t%0-2r, [%3-5r, %6-8r]"},
+    {0x0000, 0xffc0, 0, "mov%C\t%0-2r, %3-5r"},
+    {0x0000, 0xf800, 0, "lsl%C\t%0-2r, %3-5r, #%6-10d"},
+    {0x0800, 0xf800, 0, "lsr%C\t%0-2r, %3-5r, %s"},
+    {0x1000, 0xf800, 0, "asr%C\t%0-2r, %3-5r, %s"},
+    {0x2000, 0xf800, 0, "mov%C\t%8-10r, #%0-7d"},
+    {0x2800, 0xf800, 0, "cmp%c\t%8-10r, #%0-7d"},
+    {0x3000, 0xf800, 0, "add%C\t%8-10r, #%0-7d"},
+    {0x3800, 0xf800, 0, "sub%C\t%8-10r, #%0-7d"},
+    {0x4800, 0xf800, 0, "ldr%c\t%8-10r, [pc, #%0-7W]\t; (%0-7a)"},
+    {0x6000, 0xf800, 0, "str%c\t%0-2r, [%3-5r, #%6-10W]"},
+    {0x6800, 0xf800, 0, "ldr%c\t%0-2r, [%3-5r, #%6-10W]"},
+    {0x7000, 0xf800, 0, "strb%c\t%0-2r, [%3-5r, #%6-10d]"},
+    {0x7800, 0xf800, 0, "ldrb%c\t%0-2r, [%3-5r, #%6-10d]"},
+    {0x8000, 0xf800, 0, "strh%c\t%0-2r, [%3-5r, #%6-10H]"},
+    {0x8800, 0xf800, 0, "ldrh%c\t%0-2r, [%3-5r, #%6-10H]"},
+    {0x9000, 0xf800, 0, "str%c\t%8-10r, [sp, #%0-7W]"},
+    {0x9800, 0xf800, 0, "ldr%c\t%8-10r, [sp, #%0-7W]"},
+    {0xa000, 0xf800, 0, "add%c\t%8-10r, pc, #%0-7W\t; (adr %8-10r, %0-7a)"},
+    {0xa800, 0xf800, 0, "add%c\t%8-10r, sp, #%0-7W"},
+    {0xc000, 0xf800, 0, "stmia%c\t%8-10r!, %M"},
+    {0xc800, 0xf800, 0, "ldmia%c\t%8-10r%W, %M"},
+    {0xdf00, 0xff00, 0, "svc%c\t%0-7d"},
+    {0xde00, 0xff00, 0, "udf%c\t#%0-7d"},
+    {0xde00, 0xfe00, 0, "UNDEFINED"},
+    {0xd000, 0xf000, 0, "b%8-11c.n\t%0-7B%X"},
+    {0xe000, 0xf800, 0, "b%c.n\t%0-10B%x"},
+    {0x0000, 0x0000, 0, "UNDEFINED"},
+    {0, 0, 0, 0}
+};
+
+static const struct opcode thumb32_opcodes[] =
+{
+    {0, 0, 0, 0}
+};
+
 /*
  * Checks whether insn is a legal/defined instruction that has
  * incorrect should-be-one/should-be-zero bits set. libopcodes
@@ -466,16 +603,32 @@ static const struct opcode extra_opcodes[] =
  * Without this filter, these instructions will often be marked as
  * hidden, generating a lot of false positives.
  */
-static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes)
+static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes, bool thumb16)
 {
     const struct opcode *curr_op;
     for (curr_op = opcodes; curr_op->disassembly; ++curr_op) {
-        uint32_t masked_insn = (insn & curr_op->op_mask);
-        uint32_t sb_masked_insn = masked_insn & ~(curr_op->sb_mask);
-        uint32_t sb_masked_value = curr_op->op_value & ~(curr_op->sb_mask);
+
+        uint32_t op_value = curr_op->op_value;
+        uint32_t op_mask = curr_op->op_mask;
+        uint32_t sb_mask = curr_op->sb_mask;
+
+        if (thumb16) {
+            /*
+             * Since thumb16 instructions are encoded in the upper half of the
+             * 32-bit insn variable, the table entries need to be shifted
+             * one half-word left.
+             */
+            op_value <<= 16;
+            op_mask <<= 16;
+            sb_mask <<= 16;
+        }
+
+        uint32_t masked_insn = (insn & op_mask);
+        uint32_t sb_masked_insn = masked_insn & ~sb_mask;
+        uint32_t sb_masked_value = op_value & ~sb_mask;
 
         if (sb_masked_insn == sb_masked_value) {
-            if (masked_insn != curr_op->op_value) {
+            if (masked_insn != op_value) {
                 return true;
             } else {
                 return false;
@@ -557,7 +710,7 @@ static bool is_undef_breakpoint(uint32_t insn)
 #endif
 }
 
-bool filter_instruction(uint32_t insn)
+bool filter_instruction(uint32_t insn, bool thumb)
 {
     if (is_unpredictable_ldpsw(insn))
         return true;
@@ -565,9 +718,15 @@ bool filter_instruction(uint32_t insn)
     if (is_undef_breakpoint(insn))
         return true;
 
-    if (has_incorrect_sb_bits(insn, base_opcodes)
-            || has_incorrect_sb_bits(insn, extra_opcodes))
-        return true;
-
+    if (thumb) {
+        if (is_thumb32(insn)) {
+            return has_incorrect_sb_bits(insn, thumb32_opcodes, false);
+        } else {
+            return has_incorrect_sb_bits(insn, thumb16_opcodes, true);
+        }
+    } else {
+        return (has_incorrect_sb_bits(insn, base_opcodes, false)
+                || has_incorrect_sb_bits(insn, coproc_opcodes, false));
+    }
     return false;
 }

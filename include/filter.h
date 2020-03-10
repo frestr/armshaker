@@ -2,4 +2,4 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-bool filter_instruction(uint32_t insn);
+bool filter_instruction(uint32_t insn, bool thumb);

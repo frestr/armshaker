@@ -36,6 +36,7 @@
 #include "filter.h"
 #include "logging.h"
 #include "reg_const.h"
+#include "util.h"
 
 #define STATUS_UPDATE_RATE 0x1000
 
@@ -604,21 +605,6 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 }
 
 /*
- * Checks whether the supplied instruction is a 32-bit long
- * instruction (thumb2) or not.
- *
- * This can be deduced from the instruction prefix, which
- * is 0b11101 (0x1d), 0b11110 (0x1e) or 0b11111 (0x1f) in
- * those cases.
- */
-bool is_thumb32(uint32_t insn)
-{
-    uint16_t upper = (insn >> 16) & 0xffff;
-    uint8_t prefix = (upper >> 11) & 0x1f;
-    return prefix >= 0x1d && prefix <= 0x1f;
-}
-
-/*
  * Returns the next instruction based on the current one, taking
  * the instruction mask and thumb execution into account.
  *
@@ -701,7 +687,7 @@ int main(int argc, char **argv)
     bool print_regs = false;
     bool single_insn = false;
     bool do_filter = false;
-    bool thumb_exec = false;
+    bool thumb = false;
 
     char *file_suffix = NULL;
     char *endptr;
@@ -773,7 +759,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Thumb execution is only available on AArch32.\n");
                 return 1;
 #else
-                thumb_exec = true;
+                thumb = true;
 #endif
                 break;
             default:
@@ -787,7 +773,7 @@ int main(int argc, char **argv)
 
     pid_t slave_pid = 0;
     if (use_ptrace)
-        slave_pid = spawn_slave(thumb_exec);
+        slave_pid = spawn_slave(thumb);
 
     char *log_path;
     if (asprintf(&log_path, "%s%s", "data/log", file_suffix == NULL ? "" : file_suffix) == -1) {
@@ -811,7 +797,7 @@ int main(int argc, char **argv)
 	csh cs_handle;
 
 	if (cs_open(CAPSTONE_ARCH,
-                CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN + (thumb_exec ? CS_MODE_THUMB : 0),
+                CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN + (thumb ? CS_MODE_THUMB : 0),
                 &cs_handle) != CS_ERR_OK) {
         fprintf(stderr, "ERROR: Unable to load capstone\n");
 		return 1;
@@ -880,12 +866,12 @@ int main(int argc, char **argv)
 
     for (uint64_t i = insn_range_start;
             i <= insn_range_end;
-            i = get_next_instruction(i, insn_mask, thumb_exec)) {
+            i = get_next_instruction(i, insn_mask, thumb)) {
         curr_insn = i & 0xffffffff;
 
         // Check if capstone thinks the instruction is undefined
         int capstone_ret = capstone_disassemble(curr_insn,
-                                                thumb_exec,
+                                                thumb,
                                                 cs_str,
                                                 sizeof(cs_str),
                                                 &cs_handle);
@@ -894,7 +880,7 @@ int main(int argc, char **argv)
 
         // Now check what libopcodes thinks
         int libopcodes_ret = libopcodes_disassemble(curr_insn,
-                                                    thumb_exec,
+                                                    thumb,
                                                     libopcodes_str,
                                                     sizeof(libopcodes_str));
         if (libopcodes_ret == 0) {
@@ -972,7 +958,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (do_filter && filter_instruction(curr_insn) && !exec_all) {
+        if (do_filter && filter_instruction(curr_insn, thumb) && !exec_all) {
             ++instructions_filtered;
             continue;
         }
@@ -981,16 +967,16 @@ int main(int argc, char **argv)
         size_t buf_length = fill_insn_buffer(insn_bytes,
                                              sizeof(insn_bytes),
                                              curr_insn,
-                                             thumb_exec);
+                                             thumb);
 
-        if (thumb_exec && !is_thumb32(curr_insn)) {
+        if (thumb && !is_thumb32(curr_insn)) {
             insn_bytes[2] = 0;
             insn_bytes[3] = 0;
         }
 
         execution_result exec_result = {0};
         if (use_ptrace) {
-            execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb_exec, &exec_result);
+            execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb, &exec_result);
 
             if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
@@ -1002,7 +988,7 @@ int main(int argc, char **argv)
                 print_execution_result(&exec_result);
         } else {
             // XXX: Thumb exec is only supported with ptrace so far
-            assert(!thumb_exec);
+            assert(!thumb);
 
             // Update the first instruction in the instruction buffer
             memcpy(insn_buffer + insn_offset * 4, insn_bytes, buf_length);
