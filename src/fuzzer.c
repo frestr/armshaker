@@ -778,6 +778,17 @@ int main(int argc, char **argv)
         }
     }
 
+    if (thumb && !use_ptrace) {
+        /*
+         * Only ptrace execution supported for thumb as of now, as page exec
+         * requires quite a few changes with little to be gained, seeing
+         * as the thumb(2) instruction space is an order of magnitude smaller
+         * than A32.
+         */
+        fprintf(stderr, "Thumb execution requires ptrace. Run with -p option.\n");
+        return 1;
+    }
+
     if (single_insn)
         insn_range_end = insn_range_start;
 
@@ -997,9 +1008,6 @@ int main(int argc, char **argv)
             if (print_regs)
                 print_execution_result(&exec_result);
         } else {
-            // XXX: Thumb exec is only supported with ptrace so far
-            assert(!thumb);
-
             // Update the first instruction in the instruction buffer
             memcpy(insn_buffer + insn_offset * 4, insn_bytes, buf_length);
 
