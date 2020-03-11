@@ -429,21 +429,23 @@ void slave_loop(void)
 
 }
 
+#ifdef __aarch64__
+void slave_loop_thumb(void)
+{
+    return;
+}
+#else
 __attribute__((target("thumb")))
 void slave_loop_thumb(void)
 {
-#ifdef __aarch64__
-    return;
-#else
     asm volatile(
             "loopt:     \n"
             "   udf #1  \n" // Linux-reserved bkpt
             "   nop.w   \n" // 32-bit wide nop
             "   b loopt \n"
             );
-#endif
 }
-
+#endif
 
 pid_t spawn_slave(bool thumb)
 {

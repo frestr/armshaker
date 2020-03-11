@@ -964,6 +964,7 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 #ifdef __aarch64__
     // No undef hooks on breakpoints in aarch64
     (void)insn;
+    (void)thumb;
     return false;
 #else
     if (thumb && is_thumb32(insn)) {
