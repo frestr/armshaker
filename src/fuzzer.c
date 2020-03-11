@@ -996,6 +996,7 @@ int main(int argc, char **argv)
         }
 
         execution_result exec_result = {0};
+        exec_result.insn = curr_insn;
         if (use_ptrace) {
             execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb, &exec_result);
 
@@ -1030,8 +1031,6 @@ int main(int argc, char **argv)
 
             exec_result.signal = last_insn_signum;
         }
-
-        exec_result.insn = curr_insn;
 
         if (last_insn_signum != SIGILL) {
             if (write_logfile(log_path, &exec_result, use_ptrace) == -1) {
