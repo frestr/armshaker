@@ -934,7 +934,7 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
  * Side note: for A32, libopcodes actually incorrectly disassembles
  * the crc32 insn as a cmn insn in this case.
  */
-bool is_unpredictable_crc32(uint32_t insn)
+static bool is_unpredictable_crc32(uint32_t insn)
 {
     bool is_crc32 = ((insn & 0xfff0f0c0) == 0xfac0f080);
     bool is_crc32c = ((insn & 0xfff0f0c0) == 0xfad0f080);
@@ -973,14 +973,24 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
          * is de01 (which is supposed to be a bkpt for thumb16).
          *
          * NOTE: This doesn't check whether the instruction is undefined
-         * or not, but that should be fine as we only filter on instructions
-         * where the disassemblers failed.
+         * or not, but that should be fine as we only filter on presumably
+         * undefined instructions.
          */
         return ((insn & 0x0000ffff) == 0x0000de01);
     }
     // udf #16 with arbitrary cond prefix
     return ((insn & 0x0fffffff) == 0x07f001f0);
 #endif
+}
+
+/*
+ * b insns with condition 0xe or 0xf is unpredictable in thumb32,
+ * but marked as undefined by libopcodes.
+ */
+static bool is_unpred_thumb_bcc(uint32_t insn)
+{
+    return ((insn & 0xfbc0d000) == 0xf3c08000
+            || (insn & 0xfbc0d000) == 0xf3808000);
 }
 
 bool filter_instruction(uint32_t insn, bool thumb)
@@ -995,7 +1005,8 @@ bool filter_instruction(uint32_t insn, bool thumb)
         if (is_thumb32(insn)) {
             return (has_incorrect_sb_bits(insn, coproc_opcodes, false)
                     || has_incorrect_sb_bits(insn, thumb32_opcodes, false)
-                    || is_unpredictable_crc32(insn));
+                    || is_unpredictable_crc32(insn)
+                    || is_unpred_thumb_bcc(insn));
         } else {
             return has_incorrect_sb_bits(insn, thumb16_opcodes, true);
         }
