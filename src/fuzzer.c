@@ -1009,6 +1009,8 @@ int main(int argc, char **argv)
             if (print_regs)
                 print_execution_result(&exec_result);
         } else {
+            assert(!thumb);
+
             // Update the first instruction in the instruction buffer
             memcpy(insn_buffer + insn_offset * 4, insn_bytes, buf_length);
 
