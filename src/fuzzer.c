@@ -504,10 +504,12 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 #endif
 
     if (insn_loc == 0) {
-        if (thumb)
+        if (thumb) {
+            // The bkpt / udf #1 instruction is two bytes
             insn_loc = *pc_reg + 2;
-        else
+        } else {
             insn_loc = *pc_reg + 4;
+        }
     }
 
     uint32_t insn;
@@ -595,7 +597,13 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
         if (signo == SIGTRAP) {
             result->signal = signo;
         }
-        *pc_reg = insn_loc - 4;
+
+        if (thumb) {
+            *pc_reg = insn_loc - 2;
+        } else {
+            *pc_reg = insn_loc - 4;
+        }
+
         if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
             perror("setregs failed");
         }

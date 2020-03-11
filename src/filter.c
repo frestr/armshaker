@@ -873,7 +873,7 @@ static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes, b
         uint32_t sb_masked_value = op_value & ~sb_mask;
 
         if (sb_masked_insn == sb_masked_value) {
-            if (masked_insn != op_value) {
+            if ((insn & sb_mask) != (op_value & sb_mask)) {
                 return true;
             } else {
                 return false;
@@ -927,6 +927,22 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
 }
 
 /*
+ * libopcodes (and capstone) fail to disassemble the crc32 thumb
+ * instruction if the sz operand is 0b11 (3), although the manual
+ * says the instruction is unpredictable in this case.
+ *
+ * Side note: for A32, libopcodes actually incorrectly disassembles
+ * the crc32 insn as a cmn insn in this case.
+ */
+bool is_unpredictable_crc32(uint32_t insn)
+{
+    bool is_crc32 = ((insn & 0xfff0f0c0) == 0xfac0f080);
+    bool is_crc32c = ((insn & 0xfff0f0c0) == 0xfad0f080);
+    bool unpred_sz = ((insn & 0x00000030) == 0x00000030);
+    return (is_crc32 || is_crc32c) && unpred_sz;
+}
+
+/*
  * Linux configures traps on certain undefined instructions, namely
  * 'udf #16' (e7f001f0), but without regarding the condition prefix.
  * (See Linux source, arch/arm/kernel/ptrace.c:213)
@@ -943,13 +959,25 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
  * Still, we're not interested in finding instructions 'trapped' by
  * Linux, so filter them away.
  */
-static bool is_undef_breakpoint(uint32_t insn)
+static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 {
 #ifdef __aarch64__
     // No undef hooks on breakpoints in aarch64
     (void)insn;
     return false;
 #else
+    if (thumb && is_thumb32(insn)) {
+        /*
+         * For thumb, there is a bug in Linux where it makes undefined
+         * thumb32 instructions throw SIGTRAPs if the second half-word
+         * is de01 (which is supposed to be a bkpt for thumb16).
+         *
+         * NOTE: This doesn't check whether the instruction is undefined
+         * or not, but that should be fine as we only filter on instructions
+         * where the disassemblers failed.
+         */
+        return ((insn & 0x0000ffff) == 0x0000de01);
+    }
     // udf #16 with arbitrary cond prefix
     return ((insn & 0x0fffffff) == 0x07f001f0);
 #endif
@@ -960,18 +988,20 @@ bool filter_instruction(uint32_t insn, bool thumb)
     if (is_unpredictable_ldpsw(insn))
         return true;
 
-    if (is_undef_breakpoint(insn))
+    if (is_undef_breakpoint(insn, thumb))
         return true;
 
     if (thumb) {
         if (is_thumb32(insn)) {
-            return has_incorrect_sb_bits(insn, thumb32_opcodes, false);
+            return (has_incorrect_sb_bits(insn, coproc_opcodes, false)
+                    || has_incorrect_sb_bits(insn, thumb32_opcodes, false)
+                    || is_unpredictable_crc32(insn));
         } else {
             return has_incorrect_sb_bits(insn, thumb16_opcodes, true);
         }
     } else {
-        return (has_incorrect_sb_bits(insn, base_opcodes, false)
-                || has_incorrect_sb_bits(insn, coproc_opcodes, false));
+            return (has_incorrect_sb_bits(insn, coproc_opcodes, false)
+                    || has_incorrect_sb_bits(insn, base_opcodes, false));
     }
     return false;
 }
