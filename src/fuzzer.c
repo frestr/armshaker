@@ -413,7 +413,7 @@ int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disa
 void slave_loop(void)
 {
     asm volatile(
-            "loop:      \n"
+            "1:         \n"
 #ifdef __aarch64__
             "   brk #0  \n"
 #else
@@ -424,7 +424,7 @@ void slave_loop(void)
             "   udf #16 \n"
 #endif
             "   nop     \n"
-            "   b loop  \n"
+            "   b 1b    \n"
             );
 
 }
@@ -439,10 +439,10 @@ __attribute__((target("thumb")))
 void slave_loop_thumb(void)
 {
     asm volatile(
-            "loopt:     \n"
+            "1:         \n"
             "   udf #1  \n" // Linux-reserved bkpt
             "   nop.w   \n" // 32-bit wide nop
-            "   b loopt \n"
+            "   b 1b    \n"
             );
 }
 #endif
