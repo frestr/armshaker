@@ -66,7 +66,7 @@ static const struct opcode base_opcodes[] =
     {0x012fff10, 0x0ffffff0, 0x000fff00, "bx%c\t%0-3r"},
     {0x00000090, 0x0fe000f0, 0x0000f000, "mul%20's%c\t%16-19R, %0-3R, %8-11R"},
     {0x00200090, 0x0fe000f0, 0, "mla%20's%c\t%16-19R, %0-3R, %8-11R, %12-15R"},
-    {0x01000090, 0x0fb00ff0, 0, "swp%22'b%c\t%12-15RU, %0-3Ru, [%16-19RuU]"},
+    {0x01000090, 0x0fb00ff0, 0x00000f00, "swp%22'b%c\t%12-15RU, %0-3Ru, [%16-19RuU]"},
     {0x00800090, 0x0fa000f0, 0, "%22?sumull%20's%c\t%12-15Ru, %16-19Ru, %0-3R, %8-11R"},
     {0x00a00090, 0x0fa000f0, 0, "%22?sumlal%20's%c\t%12-15Ru, %16-19Ru, %0-3R, %8-11R"},
     {0xe320f010, 0xffffffff, 0x0000ff00, "esb"},
