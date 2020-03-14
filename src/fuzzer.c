@@ -509,7 +509,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     unsigned long long *regs_ptr = regs.regs;
 #else
     static unsigned long insn_loc = 0;
-    unsigned long *pc_reg = &regs.uregs[ARM_pc];
+    unsigned long *pc_reg = &regs.uregs[A32_pc];
     unsigned long *regs_ptr = regs.uregs;
 #endif
 
@@ -563,9 +563,9 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     regs.sp = 0;
     regs.pstate = 0;
 #else
-    regs.uregs[ARM_cpsr] = 0x10;  // user mode
+    regs.uregs[A32_cpsr] = 0x10;  // user mode
     if (thumb)
-        regs.uregs[ARM_cpsr] |= 0x20;   // Thumb execution
+        regs.uregs[A32_cpsr] |= 0x20;   // Thumb execution
 #endif
     if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
         perror("setregs failed");
