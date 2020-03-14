@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <signal.h>
 #include <ucontext.h>
-#include <time.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <malloc.h>
