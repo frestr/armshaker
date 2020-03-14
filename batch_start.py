@@ -67,7 +67,7 @@ def print_worker(pad, proc_num, status, global_y_offset):
     for line_num in range(len(lines)):
         lines[line_num] = lines[line_num][:max_line_length].ljust(max_line_length)
 
-    y_offset = (3+len(lines) if proc_num > 1 else 1) + global_y_offset
+    y_offset = ((2+len(lines))*(proc_num // 2)) + global_y_offset
     x_offset = (proc_num % 2)*(WORKER_AREA_WIDTH+2) + 1
 
     header = '╔═ Worker {} '.format(proc_num).ljust(WORKER_AREA_WIDTH-1, '═') + '╗'
@@ -169,7 +169,7 @@ def update_screen(pad, statuses, extra_data):
     for proc_num, status in enumerate(statuses):
         if status is None:
             continue
-        print_worker(pad, proc_num, status, height)
+        print_worker(pad, proc_num, status, height+1)
 
 
 def start_procs(search_range, args):
