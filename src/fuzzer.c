@@ -278,7 +278,7 @@ void execution_boilerplate(void)
 
 uint64_t get_nano_timestamp(void) {
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
+    clock_gettime(CLOCK_REALTIME, &ts);
     return (uint64_t)ts.tv_sec * 1000000000L + ts.tv_nsec;
 }
 
