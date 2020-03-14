@@ -23,7 +23,9 @@
 #include <sys/wait.h>
 #include <elf.h>
 
+#ifdef USE_CAPSTONE
 #include <capstone/capstone.h>
+#endif
 
 /*
  * Defines needed for bfd "bug":
@@ -45,10 +47,12 @@
 
 #define PAGE_SIZE 4096
 
+#ifdef USE_CAPSTONE
 #ifdef __aarch64__
     #define CAPSTONE_ARCH CS_ARCH_ARM64
 #else
     #define CAPSTONE_ARCH CS_ARCH_ARM
+#endif
 #endif
 
 // Increment bits in x indicated by the mask m
@@ -66,7 +70,9 @@ uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 uint32_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
 int libopcodes_disassemble(uint32_t, bool, char*, size_t);
+#ifdef USE_CAPSTONE
 int capstone_disassemble(uint32_t, bool, char*, size_t, csh*);
+#endif
 void slave_loop(void);
 void slave_loop_thumb(void);
 pid_t spawn_slave(bool);
@@ -393,6 +399,7 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
     return insn_size;
 }
 
+#ifdef USE_CAPSTONE
 int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disas_str_size, csh *handle)
 {
     cs_insn *capstone_insn;
@@ -409,6 +416,7 @@ int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disa
     }
     return capstone_count;
 }
+#endif
 
 void slave_loop(void)
 {
@@ -815,6 +823,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
+
+#ifdef USE_CAPSTONE
 	csh cs_handle;
 
 	if (cs_open(CAPSTONE_ARCH,
@@ -823,6 +833,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "ERROR: Unable to load capstone\n");
 		return 1;
     }
+#endif
 
     init_signal_handler(signal_handler, SIGILL);
     init_signal_handler(signal_handler, SIGSEGV);
@@ -890,6 +901,7 @@ int main(int argc, char **argv)
             i = get_next_instruction(i, insn_mask, thumb)) {
         curr_insn = i & 0xffffffff;
 
+#ifdef USE_CAPSTONE
         // Check if capstone thinks the instruction is undefined
         int capstone_ret = capstone_disassemble(curr_insn,
                                                 thumb,
@@ -898,6 +910,10 @@ int main(int argc, char **argv)
                                                 &cs_handle);
 
         bool capstone_undefined = (capstone_ret == 0);
+#else
+        strncpy(cs_str, "N/A", sizeof(cs_str));
+        bool capstone_undefined = true;
+#endif
 
         // Now check what libopcodes thinks
         int libopcodes_ret = libopcodes_disassemble(curr_insn,
@@ -954,8 +970,12 @@ int main(int argc, char **argv)
          * actually executing the insns takes so long anyway.
          */
         if ((!capstone_undefined || !libopcodes_undefined) && !exec_all) {
-            // Write to log if one of the disassemblers thinks the instruction
-            // is undefined, but not the other one
+            /* Write to log if one of the disassemblers thinks the instruction
+             * is undefined, but not the other one.
+             *
+             * Don't write anything if we're only using libopcodes though.
+             */
+#ifdef USE_CAPSTONE
             if (capstone_undefined || libopcodes_undefined) {
                 if (log_discreps) {
                         log_fp = fopen(log_path, "a");
@@ -969,6 +989,9 @@ int main(int argc, char **argv)
                 }
                 ++disas_discreps_found;
             }
+#else
+            (void)log_discreps;
+#endif
 
             ++instructions_skipped;
             continue;
@@ -1066,7 +1089,9 @@ int main(int argc, char **argv)
         printf("Total undefined: %" PRIu64 "\n", instructions_checked);
 
     munmap(insn_buffer, PAGE_SIZE);
+#ifdef USE_CAPSTONE
     cs_close(&cs_handle);
+#endif
     free(log_path);
 
     return 0;
