@@ -114,7 +114,7 @@ static const struct opcode base_opcodes[] =
     {0x00600090, 0x0ff000f0, 0, "mls%c\t%16-19R, %0-3R, %8-11R, %12-15R"},
     {0x002000b0, 0x0f3000f0, 0, "strht%c\t%12-15R, %S"},
     {0x00300090, 0x0f3000f0, 0, "UNDEFINED"},
-    {0x00300090, 0x0f300090, 0, "ldr%6's%5?hbt%c\t%12-15R, %S"},
+    {0x00300090, 0x0f300090, 0x00000f00, "ldr%6's%5?hbt%c\t%12-15R, %S"},
     {0x03000000, 0x0ff00000, 0, "movw%c\t%12-15R, %V"},
     {0x03400000, 0x0ff00000, 0, "movt%c\t%12-15R, %V"},
     {0x06ff0f30, 0x0fff0ff0, 0x000f0f00, "rbit%c\t%12-15R, %0-3R"},
@@ -295,9 +295,9 @@ static const struct opcode base_opcodes[] =
     {0x004000b0, 0x0e5000f0, 0x00000f00, "strh%c\t%12-15R, %s"},
     {0x000000b0, 0x0e500ff0, 0x00000f00, "strh%c\t%12-15R, %s"},
     {0x00500090, 0x0e5000f0, 0, "UNDEFINED"},
-    {0x00500090, 0x0e500090, 0, "ldr%6's%5?hb%c\t%12-15R, %s"},
+    {0x00500090, 0x0e500090, 0x00000f00, "ldr%6's%5?hb%c\t%12-15R, %s"},
     {0x00100090, 0x0e500ff0, 0, "UNDEFINED"},
-    {0x00100090, 0x0e500f90, 0, "ldr%6's%5?hb%c\t%12-15R, %s"},
+    {0x00100090, 0x0e500f90, 0x00000f00, "ldr%6's%5?hb%c\t%12-15R, %s"},
     {0x02000000, 0x0fe00000, 0, "and%20's%c\t%12-15r, %16-19r, %o"},
     {0x00000000, 0x0fe00010, 0, "and%20's%c\t%12-15r, %16-19r, %o"},
     {0x00000010, 0x0fe00090, 0, "and%20's%c\t%12-15R, %16-19R, %o"},
@@ -868,15 +868,23 @@ static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes, b
             sb_mask <<= 16;
         }
 
-        uint32_t masked_insn = (insn & op_mask);
-        uint32_t sb_masked_insn = masked_insn & ~sb_mask;
-        uint32_t sb_masked_value = op_value & ~sb_mask;
+        /*
+         * If the instruction has all the condition bits set (prefix 0xf),
+         * only match against masks with the same bits set.
+         */
+        if ((insn & 0xf0000000) != 0xf0000000
+                || (op_mask & 0xf0000000) == 0xf0000000
+                || (op_mask == 0 && op_value == 0)) {
+            uint32_t masked_insn = (insn & op_mask);
+            uint32_t sb_masked_insn = masked_insn & ~sb_mask;
+            uint32_t sb_masked_value = op_value & ~sb_mask;
 
-        if (sb_masked_insn == sb_masked_value) {
-            if ((insn & sb_mask) != (op_value & sb_mask)) {
-                return true;
-            } else {
-                return false;
+            if (sb_masked_insn == sb_masked_value) {
+                if ((insn & sb_mask) != (op_value & sb_mask)) {
+                    return true;
+                } else {
+                    return false;
+                }
             }
         }
     }
