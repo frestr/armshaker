@@ -52,13 +52,16 @@ static const struct opcode base_opcodes[] =
 #ifdef __aarch64__
     /*
      * The issue with including SBO/SBZ bits in the insn value
-     * isn't as prevalent in aarch64, and the cases where it actually
-     * happens (like ldar and ldarb), capstone manages to disassemble
-     * them, thus masking over the issue.
+     * isn't as prevalent in aarch64, and really only appears to
+     * happen with the ldar instructions.
      *
-     * Would be nice to have the table here still for completeness,
-     * but it's frankly too much work with little gain as it stands.
+     * Contrary to the A32 opcode table, I *think* the A64 table
+     * isn't partially ordered, so it should be fine to just
+     * include the ldar insns.
      */
+    {0x08dffc00, 0xffeffc00, 0x001f7c00, "ldarb"},
+    {0x48dffc00, 0xfffffc00, 0x001f7c00, "ldarh"},
+    {0x88dffc00, 0xbfeffc00, 0x001f7c00, "ldar"},
     {0x00000000, 0x00000000, 0, 0}
 #else
     {0xe1a00000, 0xffffffff, 0, "nop\t\t\t; (mov r0, r0)"},
