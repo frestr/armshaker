@@ -1084,9 +1084,6 @@ int main(int argc, char **argv)
     // Compensate for the statusline not having a linebreak
     printf("\n");
 
-    if (no_exec)
-        printf("Total undefined: %" PRIu64 "\n", instructions_checked);
-
     munmap(insn_buffer, PAGE_SIZE);
 #ifdef USE_CAPSTONE
     cs_close(&cs_handle);
