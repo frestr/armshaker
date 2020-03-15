@@ -26,7 +26,8 @@ fuzzer: $(OBJS)
 	$(CC) $(CFLAGS) $(DEFINES) -c $<
 
 %.o: binutils/opcodes/%.c
-	$(CC) $(CFLAGS) -Wno-unused -DHAVE_STRING_H -DARCH_arm -c $<
+	$(CC) -march=armv8-a -std=gnu11 -O2 -Ibinutils/include \
+		  -DHAVE_STRING_H -DARCH_arm -DARCH_aarch64 -c $<
 
 clean:
 	$(RM) $(OBJS) fuzzer
