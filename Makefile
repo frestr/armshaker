@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-march=armv8-a -std=gnu11 -Iinclude -Ibinutils/include -Wall -Wextra -Og -g
-LDLIBS=
+LDLIBS=-lm
 DEFINES=-D_FILE_OFFSET_BITS=64
 
 ifeq ($(USE_CAPSTONE),TRUE)
@@ -26,7 +26,7 @@ fuzzer: $(OBJS)
 	$(CC) $(CFLAGS) $(DEFINES) -c $<
 
 %.o: binutils/opcodes/%.c
-	$(CC) -march=armv8-a -std=gnu11 -O2 -Ibinutils/include \
+	$(CC) -march=armv8-a -std=gnu11 -w -O2 -Ibinutils/include \
 		  -DHAVE_STRING_H -DARCH_arm -DARCH_aarch64 -c $<
 
 clean:
