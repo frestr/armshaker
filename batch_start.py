@@ -220,6 +220,7 @@ def main(stdscr, args):
                     args.end if type(args.end) is int else args.end[0])
     procs = start_procs(search_range, args)
 
+    curses.use_default_colors()
     curses.cbreak()
     curses.noecho()
     curses.curs_set(False)
