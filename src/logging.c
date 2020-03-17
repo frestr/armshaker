@@ -11,7 +11,7 @@ void print_statusline(search_status *status)
            "hidden: %" PRIu64 ", "
            "discreps: %" PRIu64 ", "
            "ips: %" PRIu64 "   ",
-           status->curr_insn,
+           status->insn,
            status->instructions_checked,
            status->instructions_skipped,
            status->instructions_filtered,
@@ -148,7 +148,7 @@ int write_statusfile(char *filepath, search_status *status)
     }
 
     fprintf(fp,
-            "curr_insn:%08" PRIx32 "\n"
+            "insn:%08" PRIx32 "\n"
             "cs_disas:%s\n"
             "libopcodes_disas:%s\n"
             "instructions_checked:%" PRIu64 "\n"
@@ -157,7 +157,7 @@ int write_statusfile(char *filepath, search_status *status)
             "hidden_instructions_found:%" PRIu64 "\n"
             "disas_discrepancies:%" PRIu64 "\n"
             "instructions_per_sec:%" PRIu64 "\n",
-            status->curr_insn,
+            status->insn,
             status->cs_disas,
             status->libopcodes_disas,
             status->instructions_checked,

@@ -53,7 +53,7 @@ def update_statuses(procs, statuses):
 
 def print_worker(pad, proc_num, status, global_y_offset):
     lines = []
-    lines.append('insn:      {}'.format(status['curr_insn']))
+    lines.append('insn:      {}'.format(status['insn']))
     lines.append('cs_disas:  {}'.format(status['cs_disas']))
     lines.append('opc_disas: {}'.format(status['libopcodes_disas']))
     lines.append('checked:   {:,}'.format(int(status['instructions_checked'])))

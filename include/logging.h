@@ -4,7 +4,7 @@
 #include "reg_const.h"
 
 typedef struct {
-    uint32_t curr_insn;
+    uint32_t insn;
     char cs_disas[256];
     char libopcodes_disas[256];
     uint64_t instructions_checked;

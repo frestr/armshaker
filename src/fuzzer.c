@@ -878,6 +878,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "ERROR: asprintf with statusfile_path failed\n");
         return 1;
     }
+
     if (file_suffix != NULL)
         free(file_suffix);
 
@@ -934,64 +935,47 @@ int main(int argc, char **argv)
         fclose(log_fp);
     }
 
-    uint64_t instructions_checked = 0;
-    uint64_t instructions_skipped = 0;
-    uint64_t instructions_filtered = 0;
-    uint64_t hidden_instructions_found = 0;
-    uint64_t disas_discreps_found = 0;
     uint64_t last_timestamp = get_nano_timestamp();
 
-    char cs_str[256] = {0};
-    char libopcodes_str[256] = {0};
-
-    uint32_t curr_insn = insn_range_start & 0xffffffff;
     search_status curr_status = {0};
+    curr_status.insn = insn_range_start & 0xffffffff;
 
     for (uint64_t i = insn_range_start;
             i <= insn_range_end;
             i = get_next_instruction(i, insn_mask, thumb)) {
-        curr_insn = i & 0xffffffff;
+        curr_status.insn = i & 0xffffffff;
 
 #ifdef USE_CAPSTONE
         // Check if capstone thinks the instruction is undefined
-        int capstone_ret = capstone_disassemble(curr_insn,
+        int capstone_ret = capstone_disassemble(curr_status.insn,
                                                 thumb,
-                                                cs_str,
-                                                sizeof(cs_str),
+                                                curr_status.cs_disas,
+                                                sizeof(curr_status.cs_disas),
                                                 &cs_handle);
 
         bool capstone_undefined = (capstone_ret == 0);
 #else
-        strncpy(cs_str, "N/A", sizeof(cs_str));
+        strncpy(curr_status.cs_disas, "N/A", sizeof(curr_status.cs_disas));
         bool capstone_undefined = true;
 #endif
 
         // Now check what libopcodes thinks
-        int libopcodes_ret = libopcodes_disassemble(curr_insn,
+        int libopcodes_ret = libopcodes_disassemble(curr_status.insn,
                                                     thumb,
-                                                    libopcodes_str,
-                                                    sizeof(libopcodes_str));
+                                                    curr_status.libopcodes_disas,
+                                                    sizeof(curr_status.libopcodes_disas));
         if (libopcodes_ret == 0) {
-            fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n", curr_insn);
+            fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n",
+                    curr_status.insn);
             return 1;
         }
 
-        uint64_t total_insns = (instructions_checked
-                                + instructions_skipped
-                                + instructions_filtered);
-        // Write the current search status to the statusfile now and then
-        if (total_insns % STATUS_UPDATE_RATE == 0 || curr_insn == insn_range_end) {
-            curr_status.curr_insn = curr_insn;
-            strncpy(curr_status.cs_disas, cs_str, sizeof(curr_status.cs_disas));
-            strncpy(curr_status.libopcodes_disas,
-                    libopcodes_str,
-                    sizeof(curr_status.libopcodes_disas));
-            curr_status.instructions_checked = instructions_checked;
-            curr_status.instructions_skipped = instructions_skipped;
-            curr_status.instructions_filtered = instructions_filtered;
-            curr_status.disas_discrepancies = disas_discreps_found;
-            curr_status.hidden_instructions_found = hidden_instructions_found;
+        uint64_t total_insns = (curr_status.instructions_checked
+                                + curr_status.instructions_skipped
+                                + curr_status.instructions_filtered);
 
+        // Write the current search status to the statusfile now and then
+        if (total_insns % STATUS_UPDATE_RATE == 0 || curr_status.insn == insn_range_end) {
             uint64_t curr_timestamp = get_nano_timestamp();
             curr_status.instructions_per_sec =
                 STATUS_UPDATE_RATE / (double)((curr_timestamp - last_timestamp) / 1e9);
@@ -1005,9 +989,9 @@ int main(int argc, char **argv)
                 print_statusline(&curr_status);
         }
 
-        bool libopcodes_undefined = (strstr(libopcodes_str, "undefined") != NULL
-                                  || strstr(libopcodes_str, "NYI") != NULL
-                                  || strstr(libopcodes_str, "UNDEFINED") != NULL);
+        bool libopcodes_undefined = (strstr(curr_status.libopcodes_disas, "undefined") != NULL
+                                  || strstr(curr_status.libopcodes_disas, "NYI") != NULL
+                                  || strstr(curr_status.libopcodes_disas, "UNDEFINED") != NULL);
 
         /* Only test instructions that both capstone and libopcodes think are
          * undefined, but report inconsistencies, as they might indicate
@@ -1034,43 +1018,49 @@ int main(int argc, char **argv)
                         if (log_fp != NULL) {
                             fprintf(log_fp,
                                     "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
-                                    curr_insn, cs_str, libopcodes_str);
+                                    curr_status.insn, curr_status.cs_disas,
+                                    curr_status.libopcodes_disas);
                             fclose(log_fp);
                         }
                 }
-                ++disas_discreps_found;
+                ++curr_status.disas_discrepancies;
             }
 #else
             (void)log_discreps;
 #endif
 
-            ++instructions_skipped;
+            ++curr_status.instructions_skipped;
             continue;
         } else if (no_exec) {
             // Just count the undefined instruction and continue if we're not
             // going to execute it anyway (because of the no_exec flag)
-            ++instructions_checked;
+            ++curr_status.instructions_checked;
             continue;
         }
 
-        if (do_filter && filter_instruction(curr_insn, thumb) && !exec_all) {
-            ++instructions_filtered;
+        if (do_filter && filter_instruction(curr_status.insn, thumb) && !exec_all) {
+            ++curr_status.instructions_filtered;
             continue;
         }
 
         uint8_t insn_bytes[4];
         size_t buf_length = fill_insn_buffer(insn_bytes,
                                              sizeof(insn_bytes),
-                                             curr_insn,
+                                             curr_status.insn,
                                              thumb);
 
-        if (thumb && !is_thumb32(curr_insn)) {
+        if (thumb && !is_thumb32(curr_status.insn)) {
             insn_bytes[2] = 0;
             insn_bytes[3] = 0;
         }
 
         execution_result exec_result = {0};
-        exec_result.insn = curr_insn;
+        exec_result.insn = curr_status.insn;
+
+        /*
+         * Finally, execute the generated instruction, either using a ptrace
+         * slave or page execution within the fuzzer process.
+         */
         if (use_ptrace) {
             execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb, &exec_result);
 
@@ -1092,24 +1082,13 @@ int main(int argc, char **argv)
             if (write_logfile(log_path, &exec_result, use_ptrace) == -1) {
                 fprintf(stderr, "ERROR: Failed to write to logfile\n");
             }
-            ++hidden_instructions_found;
+            ++curr_status.hidden_instructions_found;
         }
 
-        ++instructions_checked;
+        ++curr_status.instructions_checked;
     }
 
     // Print the statusline one last time to capture the result of the last insn
-    curr_status.curr_insn = curr_insn;
-    strncpy(curr_status.cs_disas, cs_str, sizeof(curr_status.cs_disas));
-    strncpy(curr_status.libopcodes_disas,
-            libopcodes_str,
-            sizeof(curr_status.libopcodes_disas));
-    curr_status.instructions_checked = instructions_checked;
-    curr_status.instructions_skipped = instructions_skipped;
-    curr_status.instructions_filtered = instructions_filtered;
-    curr_status.hidden_instructions_found = hidden_instructions_found;
-    curr_status.disas_discrepancies = disas_discreps_found;
-
     print_statusline(&curr_status);
     write_statusfile(statusfile_path, &curr_status);
 
