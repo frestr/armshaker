@@ -57,7 +57,7 @@
 // Increment bits in x indicated by the mask m
 #define MASKED_INCREMENT(x, m) ((x & ~m) | (((x | ~m) + 1) & m))
 
-void *insn_buffer;
+void *insn_page;
 volatile sig_atomic_t last_insn_signum = 0;
 volatile sig_atomic_t executing_insn = 0;
 uint32_t insn_offset = 0;
@@ -65,6 +65,8 @@ uint32_t insn_offset = 0;
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
+int init_insn_page(void);
+void execute_insn_page(uint8_t*, size_t, execution_result*);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 uint32_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
@@ -101,7 +103,7 @@ void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
     }
 
     // Jump to the next instruction (i.e. skip the illegal insn)
-    uintptr_t insn_skip = (uintptr_t)(insn_buffer) + (insn_offset+1)*4;
+    uintptr_t insn_skip = (uintptr_t)(insn_page) + (insn_offset+1)*4;
 
 #ifdef __aarch64__
     uc->uc_mcontext.pc = insn_skip;
@@ -276,6 +278,58 @@ void execution_boilerplate(void)
 #endif
 }
 
+int init_insn_page(void)
+{
+    // Allocate an executable page / memory region
+    insn_page = mmap(NULL,
+                       PAGE_SIZE,
+                       PROT_READ | PROT_WRITE | PROT_EXEC,
+                       MAP_PRIVATE | MAP_ANONYMOUS,
+                       -1,
+                       0);
+
+    if (insn_page == MAP_FAILED)
+        return 1;
+
+    uint32_t boilerplate_length = (&boilerplate_end - &boilerplate_start) / 4;
+
+    // Load the boilerplate assembly
+    for (uint32_t i = 0; i < boilerplate_length; ++i)
+        ((uint32_t*)insn_page)[i] = ((uint32_t*)&boilerplate_start)[i];
+
+    insn_offset = (&insn_location - &boilerplate_start) / 4;
+
+    return 0;
+}
+
+void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, execution_result *exec_result)
+{
+    /* // Jumps to the instruction buffer */
+    void (*exec_page)() = (void(*)()) insn_page;
+
+    // Update the first instruction in the instruction buffer
+    memcpy(insn_page + insn_offset * 4, insn_bytes, insn_length);
+
+    last_insn_signum = 0;
+
+    /*
+     * Clear insn_page (at the insn to be tested)
+     * in the d- and icache
+     * (some instructions might be skipped otherwise.)
+     */
+    __clear_cache(insn_page + insn_offset * 4,
+                  insn_page + insn_offset * 4 + insn_length);
+
+    executing_insn = 1;
+
+    // Jump to the instruction to be tested (and execute it)
+    exec_page();
+
+    executing_insn = 0;
+
+    exec_result->signal = last_insn_signum;
+}
+
 uint64_t get_nano_timestamp(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -383,7 +437,6 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
     disassembler_ftype disasm;
     disasm = disassembler(disasm_info.arch, false, disasm_info.mach, NULL);
 
-    disasm = 0;
     if (disasm == NULL) {
         fprintf(stderr, "libopcodes returned no disassembler. "
                 "Has it been compiled with Armv8 support?\n");
@@ -845,38 +898,21 @@ int main(int argc, char **argv)
     }
 #endif
 
-    /*
-     * NOTE: It is possible that other signals than these get thrown by
-     * executed instructions, but that hasn't happened in practice
-     * when testing. Add more signals here if that actually happens.
-     */
-    init_signal_handler(signal_handler, SIGILL);
-    init_signal_handler(signal_handler, SIGSEGV);
-    init_signal_handler(signal_handler, SIGTRAP);
+    if (!use_ptrace) {
+        /*
+         * NOTE: It is possible that other signals than these get thrown by
+         * executed instructions, but that hasn't happened in practice
+         * when testing. Add more signals here if that actually happens.
+         */
+        init_signal_handler(signal_handler, SIGILL);
+        init_signal_handler(signal_handler, SIGSEGV);
+        init_signal_handler(signal_handler, SIGTRAP);
 
-    // Allocate an executable page / memory region
-    insn_buffer = mmap(NULL,
-                       PAGE_SIZE,
-                       PROT_READ | PROT_WRITE | PROT_EXEC,
-                       MAP_PRIVATE | MAP_ANONYMOUS,
-                       -1,
-                       0);
-
-    if (insn_buffer == MAP_FAILED) {
-        perror("insn_buffer mmap failed");
-        return 1;
+        if (init_insn_page() != 0) {
+            perror("insn_page mmap failed");
+            exit(1);
+        }
     }
-
-    uint32_t boilerplate_length = (&boilerplate_end - &boilerplate_start) / 4;
-
-    // Load the boilerplate assembly
-    for (uint32_t i = 0; i < boilerplate_length; ++i)
-        ((uint32_t*)insn_buffer)[i] = ((uint32_t*)&boilerplate_start)[i];
-
-    insn_offset = (&insn_location - &boilerplate_start) / 4;
-
-    // Jumps to the instruction buffer
-    void (*execute_insn_buffer)() = (void(*)()) insn_buffer;
 
     struct stat st = {0};
 
@@ -1049,27 +1085,7 @@ int main(int argc, char **argv)
         } else {
             assert(!thumb);
 
-            // Update the first instruction in the instruction buffer
-            memcpy(insn_buffer + insn_offset * 4, insn_bytes, buf_length);
-
-            last_insn_signum = 0;
-
-            /*
-             * Clear insn_buffer (at the insn to be tested)
-             * in the d- and icache
-             * (some instructions might be skipped otherwise.)
-             */
-            __clear_cache(insn_buffer + insn_offset * 4,
-                          insn_buffer + insn_offset * 4 + sizeof(curr_insn));
-
-            executing_insn = 1;
-
-            // Jump to the instruction to be tested (and execute it)
-            execute_insn_buffer();
-
-            executing_insn = 0;
-
-            exec_result.signal = last_insn_signum;
+            execute_insn_page(insn_bytes, buf_length, &exec_result);
         }
 
         if (last_insn_signum != SIGILL) {
@@ -1100,7 +1116,9 @@ int main(int argc, char **argv)
     // Compensate for the statusline not having a linebreak
     printf("\n");
 
-    munmap(insn_buffer, PAGE_SIZE);
+    if (!use_ptrace)
+        munmap(insn_page, PAGE_SIZE);
+
 #ifdef USE_CAPSTONE
     cs_close(&cs_handle);
 #endif
