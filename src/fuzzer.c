@@ -290,12 +290,11 @@ typedef struct {
 /*
  * From
  *  https://blog.yossarian.net/2019/05/18/Basic-disassembly-with-libopcodes
- * Thanks
  */
 int disas_sprintf(void *stream, const char *fmt, ...) {
     stream_state *ss = (stream_state *)stream;
 
-    size_t n;
+    int n;
     va_list arg;
     va_start(arg, fmt);
 
@@ -306,16 +305,19 @@ int disas_sprintf(void *stream, const char *fmt, ...) {
         char *tmp;
         n = vasprintf(&tmp, fmt, arg);
 
+        if (n == -1)
+            return 1;
+
         char *tmp2;
         n = asprintf(&tmp2, "%s%s", ss->buffer, tmp);
+
+        if (n != -1)
+            free(tmp);
+
         free(ss->buffer);
-        free(tmp);
         ss->buffer = tmp2;
     }
     va_end(arg);
-
-    // ugh...
-    (void)n;
 
     return 0;
 }
@@ -381,6 +383,13 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
     disassembler_ftype disasm;
     disasm = disassembler(disasm_info.arch, false, disasm_info.mach, NULL);
 
+    disasm = 0;
+    if (disasm == NULL) {
+        fprintf(stderr, "libopcodes returned no disassembler. "
+                "Has it been compiled with Armv8 support?\n");
+        exit(1);
+    }
+
     // Actually do the disassembly
     size_t insn_size = disasm(0, &disasm_info);
     if (thumb && !is_thumb32(insn)) {
@@ -439,6 +448,8 @@ void slave_loop(void)
 #ifdef __aarch64__
 void slave_loop_thumb(void)
 {
+    // This function shouldn't be called in aarch64
+    assert(0);
     return;
 }
 #else
@@ -540,7 +551,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 
 #ifdef __aarch64__
     /*
-     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytesin AArch64.
+     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytes in AArch64.
      * Since every instruction is 4 bytes, this will result in the instruction
      * after being overwritten. We therefore need to combine the two into a
      * single word before writing.
@@ -694,7 +705,7 @@ Options:\n\
 int main(int argc, char **argv)
 {
     uint32_t insn_range_start = INSN_RANGE_MIN;
-    uint32_t insn_range_end = INSN_RANGE_MAX; // 2^32 - 1
+    uint32_t insn_range_end = INSN_RANGE_MAX;
     uint64_t insn_mask = ~0;
     bool no_exec = false;
     bool quiet = false;
@@ -834,6 +845,11 @@ int main(int argc, char **argv)
     }
 #endif
 
+    /*
+     * NOTE: It is possible that other signals than these get thrown by
+     * executed instructions, but that hasn't happened in practice
+     * when testing. Add more signals here if that actually happens.
+     */
     init_signal_handler(signal_handler, SIGILL);
     init_signal_handler(signal_handler, SIGSEGV);
     init_signal_handler(signal_handler, SIGTRAP);
