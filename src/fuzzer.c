@@ -440,7 +440,7 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
     if (disasm == NULL) {
         fprintf(stderr, "libopcodes returned no disassembler. "
                 "Has it been compiled with Armv8 support?\n");
-        exit(1);
+        return 0;
     }
 
     // Actually do the disassembly
@@ -911,7 +911,7 @@ int main(int argc, char **argv)
 
         if (init_insn_page() != 0) {
             perror("insn_page mmap failed");
-            exit(1);
+            return 1;
         }
     }
 
