@@ -772,6 +772,7 @@ int main(int argc, char **argv)
 
     char *file_suffix = NULL;
     char *endptr;
+    uint64_t opt_temp;
     int c;
     while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:t", long_options, NULL)) != -1) {
         switch (c) {
@@ -779,23 +780,43 @@ int main(int argc, char **argv)
                 print_help(argv[0]);
                 return 1;
             case 's':
-                insn_range_start = strtoull(optarg, &endptr, 16);
+                opt_temp = strtoull(optarg, &endptr, 16);
+
                 if (*endptr != '\0') {
-                    fprintf(stderr, "ERROR: Unable to read instruction range start\n");
+                    fprintf(stderr, "error: unable to read instruction range start\n");
                     return 1;
+                } else if (opt_temp > INSN_RANGE_MAX) {
+                    fprintf(stderr, "error: instruction range start is outside of "
+                                    "allowed range (0x%08x-0x%08x).\n",
+                                    INSN_RANGE_MIN, INSN_RANGE_MAX);
+                    return 1;
+                } else {
+                    insn_range_start = opt_temp;
                 }
                 break;
             case 'e':
-                insn_range_end = strtoull(optarg, &endptr, 16);
+                opt_temp = strtoull(optarg, &endptr, 16);
+
                 if (*endptr != '\0') {
-                    fprintf(stderr, "ERROR: Unable to read instruction range end\n");
+                    fprintf(stderr, "ERROR: Unable to read instruction range start\n");
                     return 1;
+                } else if (opt_temp > INSN_RANGE_MAX) {
+                    fprintf(stderr, "ERROR: Instruction range end is outside of "
+                                    "allowed range (0x%08x-0x%08x).\n",
+                                    INSN_RANGE_MIN, INSN_RANGE_MAX);
+                    return 1;
+                } else {
+                    insn_range_end = opt_temp;
                 }
                 break;
             case 'n':
                 no_exec = true;
                 break;
             case 'l':
+                if (strlen(optarg) > 64) {
+                    fprintf(stderr, "ERROR: log suffix is too long.\n");
+                    return 1;
+                }
                 if (asprintf(&file_suffix, "%s", optarg) == -1) {
                     fprintf(stderr, "ERROR: asprintf with file_suffix failed\n");
                     return 1;
@@ -823,11 +844,20 @@ int main(int argc, char **argv)
                 do_filter = true;
                 break;
             case 'm':
-                insn_mask = strtoull(optarg, &endptr, 16);
+                opt_temp = strtoull(optarg, &endptr, 16);
+
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read instruction mask\n");
                     return 1;
+                } else if (opt_temp > INSN_RANGE_MAX) {
+                    fprintf(stderr, "ERROR: Instruction mask is outside of "
+                                    "allowed range (0x%08x-0x%08x).\n",
+                                    INSN_RANGE_MIN, INSN_RANGE_MAX);
+                    return 1;
+                } else {
+                    insn_mask = opt_temp;
                 }
+
                 /*
                  * Set all the bits in the upper half of the (64-bit) mask.
                  * This way we don't need to check for wrap-around
