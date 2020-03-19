@@ -25,7 +25,7 @@ void print_statusline(search_status *status)
 
 void print_execution_result(execution_result *result)
 {
-    printf("\ninsn: %" PRIx32 "\n", result->insn);
+    printf("\ninsn: %08" PRIx32 "\n", result->insn);
 #ifdef __aarch64__
     printf("x0:     %016llx\t%016llx\n"
            "x1:     %016llx\t%016llx\n"
