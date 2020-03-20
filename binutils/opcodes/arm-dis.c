@@ -9032,7 +9032,7 @@ print_insn_neon (struct disassemble_info *info, long given, bfd_boolean thumb)
 	       || (given & 0xff000000) == 0xfc000000)
 	;
       /* vdup is also a valid neon instruction.  */
-      else if ((given & 0xff910f5f) != 0xee800b10)
+      else if ((given & 0xff900f5f) != 0xee800b10)
 	return FALSE;
     }
 
