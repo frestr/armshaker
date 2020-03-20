@@ -37,9 +37,9 @@ fi
 
 range_size=$(($(($range_end - $range_start + 1)) / $procs))
 for i in $(seq 0 1 $(($procs-1))); do
-    s=$(printf '%08x' $(($START + $(($range_size * $i)))))
-    e=$(printf '%08x' $(($START + $(($range_size * $(($i+1)))) - 1)))
-    ./fuzzer -s $s -e $e $* > "data/out$i" 2>&1 &
+    s=$(printf '%08x' $(($range_start + $(($range_size * $i)))))
+    e=$(printf '%08x' $(($range_start + $(($range_size * $(($i+1)))) - 1)))
+    ./fuzzer -l $i -s $s -e $e $* > "data/out$i" 2>&1 &
 done
 
 while [ $(pgrep fuzzer | wc -l) -gt 0 ]; do
