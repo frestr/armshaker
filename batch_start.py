@@ -195,6 +195,8 @@ def start_procs(search_range, args):
                '-n' if args.no_exec else '',
                '-f' if args.filter else '',
                '-t' if args.thumb else '',
+               '-z' if args.random else '',
+               '-g' if args.log_reg_changes else '',
                '-q']
         proc = subprocess.Popen(cmd,
                                 stdout=subprocess.PIPE,
@@ -326,7 +328,12 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--thumb',
                         action='store_true',
                         help='Use the thumb instruction set (only on AArch32).')
-
+    parser.add_argument('-z', '--random',
+                        action='store_true',
+                        help='Load the registers with random values, instead of all 0s.')
+    parser.add_argument('-g', '--log-reg-changes',
+                        action='store_true',
+                        help='For hidden instructions, only log registers that changed value.')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
