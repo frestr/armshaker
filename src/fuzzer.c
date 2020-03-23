@@ -731,28 +731,34 @@ void print_help(char *cmd_name)
     printf("\n\
 General options:\n\
         -h, --help              Print help information.\n\
+        -q, --quiet             Don't print the status line.\n\
+\n\
+Search options:\n\
         -s, --start <insn>      Start of instruction search range (in hex).\n\
                                 [default: 0x00000000]\n\
         -e, --end <insn>        End of instruction search range, inclusive (in hex).\n\
                                 [default: 0xffffffff]\n\
         -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
+        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
+                                Useful for testing different operands on a single instruction.\n\
+                                Example: 0xf0000000 -> only increment most significant nibble\n\
+\n\
+Execution options:\n\
         -n, --no-exec           Calculate the total amount of undefined instructions,\n\
                                 without executing them.\n\
         -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
         -f, --filter            Filter away (skip) certain instructions that might generate\n\
                                 false positives.\n\
                                 (Mainly instructions with incorrect SBO/SBZ bits.)\n\
-        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
-                                Useful for testing different operands on a single instruction.\n\
-                                Example: 0xf0000000 -> only increment most significant nibble\n\
-        -l, --log-suffix        Add a suffix to the log and status file.\n\
-        -q, --quiet             Don't print the status line.\n\
-        -c, --discreps          Log disassembler discrepancies.\n\
         -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
                                 This will generally make execution slower, but lowers the\n\
                                 chance of the fuzzer crashing in case hidden instructions\n\
                                 with certain side-effects are found. It also enables\n\
                                 logging register content changes on hidden instructions.\n\
+\n\
+Logging options:\n\
+        -l, --log-suffix        Add a suffix to the log and status file.\n\
+        -c, --discreps          Log disassembler discrepancies.\n\
 \n\
 Ptrace options (only available with -p option):\n\
         -t, --thumb             Use the thumb instruction set (only available on AArch32).\n\
