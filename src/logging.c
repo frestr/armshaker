@@ -28,8 +28,8 @@ void print_execution_result(execution_result *result)
     printf("\ninsn: %08" PRIx32 "\n", result->insn);
 #ifdef __aarch64__
     for (uint32_t i = 0; i < UREG_COUNT; ++i)
-        printf("x% " PRIu32 ":\t%016llx\t%016llx\n",
-                result->regs_before.regs[i], result->regs_after.regs[i]);
+        printf("x%" PRIu32 ":\t%016llx\t%016llx\n",
+                i, result->regs_before.regs[i], result->regs_after.regs[i]);
 
     printf("sp:     %016llx\t%016llx\n"
            "pc:     %016llx\t%016llx\n"
@@ -107,7 +107,7 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
         for (uint32_t i = 0; i < UREG_COUNT; ++i) {
             if (only_reg_changes) {
                 if (regs0[i] != regs1[i])
-                    fprintf(log_fp, ",x% " PRIu32 ":%llx-%llx",
+                    fprintf(log_fp, ",x%" PRIu32 ":%llx-%llx",
                             i, regs0[i], regs1[i]);
             } else {
                 fprintf(log_fp, ",%llx-%llx", regs0[i], regs1[i]);
@@ -115,12 +115,18 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
         }
 
         if (only_reg_changes) {
-            if (exec_result->regs_before.sp != exec_result->regs_after.sp)
-                fprintf(log_fp, ",sp:%llx-%llx");
-            if (exec_result->regs_before.pc != exec_result->regs_after.pc)
-                fprintf(log_fp, ",pc:%llx-%llx");
-            if (exec_result->regs_before.pstate != exec_result->regs_after.pstate)
-                fprintf(log_fp, ",pstate:%llx-%llx");
+            if (exec_result->regs_before.sp != exec_result->regs_after.sp) {
+                fprintf(log_fp, ",sp:%llx-%llx",
+                        exec_result->regs_before.sp, exec_result->regs_after.sp);
+            }
+            if (exec_result->regs_before.pc != exec_result->regs_after.pc) {
+                fprintf(log_fp, ",pc:%llx-%llx",
+                        exec_result->regs_before.pc, exec_result->regs_after.pc);
+            }
+            if (exec_result->regs_before.pstate != exec_result->regs_after.pstate) {
+                fprintf(log_fp, ",pstate:%llx-%llx",
+                        exec_result->regs_before.pstate, exec_result->regs_after.pstate);
+            }
         } else {
             fprintf(log_fp, ",%llx-%llx,%llx-%llx,%llx-%llx",
                             exec_result->regs_before.sp, exec_result->regs_after.sp,
