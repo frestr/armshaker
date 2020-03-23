@@ -2,6 +2,29 @@
 #include <stdio.h>
 #include <sys/file.h>
 
+#ifndef __aarch64__
+static const char *REG_STR[] = {
+    [0] = "r0",
+    [1] = "r1",
+    [2] = "r2",
+    [3] = "r3",
+    [4] = "r4",
+    [5] = "r5",
+    [6] = "r6",
+    [7] = "r7",
+    [8] = "r8",
+    [9] = "r9",
+    [10] = "r10",
+    [11] = "fp",
+    [12] = "ip",
+    [13] = "sp",
+    [14] = "lr",
+    [15] = "pc",
+    [16] = "cpsr",
+    [17] = "orig_r0"
+};
+#endif
+
 void print_statusline(search_status *status)
 {
     printf("\rinsn: 0x%08" PRIx32 ", "
@@ -40,7 +63,7 @@ void print_execution_result(execution_result *result)
 #else
     for (uint32_t i = 0; i < UREG_COUNT; ++i) {
         if (i != A32_ORIG_r0)
-            printf("%s:\t%08lx  %08lx\n", REG_REPR[i],
+            printf("%s:\t%08lx  %08lx\n", REG_STR[i],
                     result->regs_before.uregs[i], result->regs_after.uregs[i]);
     }
 #endif
@@ -141,7 +164,7 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
             if (i != A32_ORIG_r0) {
                 if (only_reg_changes) {
                     if (regs0[i] != regs1[i])
-                        fprintf(log_fp, ",%s:%lx-%lx", REG_REPR[i], regs0[i], regs1[i]);
+                        fprintf(log_fp, ",%s:%lx-%lx", REG_STR[i], regs0[i], regs1[i]);
                 } else {
                     fprintf(log_fp, ",%lx-%lx", regs0[i], regs1[i]);
                 }
