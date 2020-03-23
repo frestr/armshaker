@@ -79,7 +79,7 @@ void slave_loop_thumb(void);
 pid_t spawn_slave(bool);
 int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
-void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, execution_result*);
+void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, execution_result*);
 bool is_thumb32(uint32_t);
 uint64_t get_next_instruction(uint64_t, uint64_t, bool);
 void print_help(char*);
@@ -553,7 +553,7 @@ int custom_ptrace_setregs(pid_t pid, struct USER_REGS_TYPE *regs)
 #endif
 }
 
-void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, execution_result *result)
+void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, execution_result *result)
 {
     int status;
 
@@ -619,8 +619,10 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
         perror("poketext failed");
     }
 
-    // Reset all regs
-    memset(regs_ptr, 0, UREG_COUNT * sizeof(regs_ptr[0]));
+    // Set all regs
+    for (uint32_t i = 0; i < UREG_COUNT; ++i)
+        regs_ptr[i] = random_regs ? rand() : 0;
+
     *pc_reg = insn_loc;
 #ifdef __aarch64__
     regs.sp = 0;
@@ -718,21 +720,31 @@ struct option long_options[] = {
     {"single-exec",     no_argument,        NULL, 'i'},
     {"filter",          no_argument,        NULL, 'f'},
     {"mask",            required_argument,  NULL, 'm'},
-    {"thumb",           no_argument,        NULL, 't'}
+    {"thumb",           no_argument,        NULL, 't'},
+    {"random",          no_argument,        NULL, 'z'},
+    {"log-reg-changes", no_argument,        NULL, 'g'}
 };
 
 void print_help(char *cmd_name)
 {
     printf("Usage: %s [option(s)]\n", cmd_name);
     printf("\n\
-Options:\n\
+General options:\n\
         -h, --help              Print help information.\n\
         -s, --start <insn>      Start of instruction search range (in hex).\n\
                                 [default: 0x00000000]\n\
         -e, --end <insn>        End of instruction search range, inclusive (in hex).\n\
                                 [default: 0xffffffff]\n\
+        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
         -n, --no-exec           Calculate the total amount of undefined instructions,\n\
                                 without executing them.\n\
+        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
+        -f, --filter            Filter away (skip) certain instructions that might generate\n\
+                                false positives.\n\
+                                (Mainly instructions with incorrect SBO/SBZ bits.)\n\
+        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
+                                Useful for testing different operands on a single instruction.\n\
+                                Example: 0xf0000000 -> only increment most significant nibble\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
         -q, --quiet             Don't print the status line.\n\
         -c, --discreps          Log disassembler discrepancies.\n\
@@ -741,17 +753,12 @@ Options:\n\
                                 chance of the fuzzer crashing in case hidden instructions\n\
                                 with certain side-effects are found. It also enables\n\
                                 logging register content changes on hidden instructions.\n\
-        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
+\n\
+Ptrace options (only available with -p option):\n\
+        -t, --thumb             Use the thumb instruction set (only available on AArch32).\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
-                                (Only available together with -p)\n\
-        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
-        -f, --filter            Filter away (skip) certain instructions that might generate\n\
-                                false positives.\n\
-                                (Mainly instructions with incorrect SBO/SBZ bits.)\n\
-        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
-                                Useful for testing different operands on a single instruction.\n\
-                                Example: 0xf0000000 -> only increment most significant nibble\n\
-        -t, --thumb             Use the thumb instruction set (only available on AArch32).\n"
+        -z, --random            Load the registers with random values, instead of all 0s.\n\
+        -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n"
     );
 }
 
@@ -769,12 +776,14 @@ int main(int argc, char **argv)
     bool single_insn = false;
     bool do_filter = false;
     bool thumb = false;
+    bool random_regs = false;
+    bool only_reg_changes = false;
 
     char *file_suffix = NULL;
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:t", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzg", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -873,6 +882,13 @@ int main(int argc, char **argv)
                 thumb = true;
 #endif
                 break;
+            case 'z':
+                srand(time(NULL));
+                random_regs = true;
+                break;
+            case 'g':
+                only_reg_changes = true;
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
@@ -887,6 +903,12 @@ int main(int argc, char **argv)
          * than A32.
          */
         fprintf(stderr, "Thumb execution requires ptrace. Run with -p option.\n");
+        return 1;
+    }
+
+    if ((print_regs || random_regs || only_reg_changes) && !use_ptrace) {
+        fprintf(stderr, "One or more of the supplied options require ptrace execution. "
+                        "Run with -p option.\n");
         return 1;
     }
 
@@ -1092,7 +1114,8 @@ int main(int argc, char **argv)
          * slave or page execution within the fuzzer process.
          */
         if (use_ptrace) {
-            execute_insn_slave(&slave_pid, insn_bytes, buf_length, thumb, &exec_result);
+            execute_insn_slave(&slave_pid, insn_bytes, buf_length,
+                               thumb, random_regs, &exec_result);
 
             if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
@@ -1109,7 +1132,7 @@ int main(int argc, char **argv)
         }
 
         if (last_insn_signum != SIGILL) {
-            if (write_logfile(log_path, &exec_result, use_ptrace) == -1) {
+            if (write_logfile(log_path, &exec_result, use_ptrace, only_reg_changes) == -1) {
                 fprintf(stderr, "ERROR: Failed to write to logfile\n");
             }
             ++curr_status.hidden_instructions_found;

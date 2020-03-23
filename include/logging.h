@@ -28,4 +28,4 @@ void print_statusline(search_status*);
 void print_execution_result(execution_result*);
 
 int write_statusfile(char*, search_status*);
-int write_logfile(char*, execution_result*, bool);
+int write_logfile(char*, execution_result*, bool, bool);
