@@ -756,6 +756,8 @@ General options:\n\
 \n\
 Ptrace options (only available with -p option):\n\
         -t, --thumb             Use the thumb instruction set (only available on AArch32).\n\
+                                (Note: 16-bit thumb instructions has the format XXXX0000.\n\
+                                So to test e.g. instruction 46c0, use 46c00000.)\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
         -z, --random            Load the registers with random values, instead of all 0s.\n\
         -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n"
