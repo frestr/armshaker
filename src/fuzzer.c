@@ -620,12 +620,18 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     }
 
     // Set all regs
-    for (uint32_t i = 0; i < UREG_COUNT; ++i)
-        regs_ptr[i] = random_regs ? rand() : 0;
+    for (uint32_t i = 0; i < UREG_COUNT; ++i) {
+#ifdef __aarch64__
+        uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
+#else
+        uint32_t rand_val = rand();
+#endif
+        regs_ptr[i] = random_regs ? rand_val : 0;
+    }
 
     *pc_reg = insn_loc;
 #ifdef __aarch64__
-    regs.sp = 0;
+    regs.sp = random_regs ? ((uint64_t)rand() << 32) | rand() : 0;
     regs.pstate = 0;
 #else
     regs.uregs[A32_cpsr] = 0x10;  // user mode
