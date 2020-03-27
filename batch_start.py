@@ -152,12 +152,13 @@ def print_summary(pad, statuses, extra_data, just_height=False):
 
 def print_done(pad):
     y_offset = 17
-    x_offset = WORKER_AREA_WIDTH - 5
-    pad.addstr(y_offset+0, x_offset, '╔═════════════╗')
-    pad.addstr(y_offset+1, x_offset, '║             ║')
-    pad.addstr(y_offset+2, x_offset, '║    Done!    ║')
-    pad.addstr(y_offset+3, x_offset, '║             ║')
-    pad.addstr(y_offset+4, x_offset, '╚═════════════╝')
+    x_offset = WORKER_AREA_WIDTH - 8
+    pad.addstr(y_offset+0, x_offset, '╔═══════════════════╗')
+    pad.addstr(y_offset+1, x_offset, '║                   ║')
+    pad.addstr(y_offset+2, x_offset, '║       Done!       ║')
+    pad.addstr(y_offset+3, x_offset, '║ (press q to quit) ║')
+    pad.addstr(y_offset+4, x_offset, '║                   ║')
+    pad.addstr(y_offset+5, x_offset, '╚═══════════════════╝')
 
 
 def update_screen(pad, statuses, extra_data):
@@ -275,7 +276,8 @@ def main(stdscr, args):
                 update_screen(pad, statuses, extra_data)
                 print_done(pad)
                 refresh_pad(stdscr, pad)
-                stdscr.getch()
+                while stdscr.getch() != ord('q'):
+                    pass
                 break
             else:
                 time.sleep(0.1)
