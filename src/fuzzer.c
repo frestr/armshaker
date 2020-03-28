@@ -69,7 +69,7 @@ int init_insn_page(void);
 void execute_insn_page(uint8_t*, size_t, execution_result*);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
-uint32_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
+size_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
 int libopcodes_disassemble(uint32_t, bool, char*, size_t);
 #ifdef USE_CAPSTONE
 int capstone_disassemble(uint32_t, bool, char*, size_t, csh*);
@@ -383,10 +383,10 @@ int disas_sprintf(void *stream, const char *fmt, ...) {
  *
  * Return the buffer length
  */
-uint32_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn, bool thumb)
+size_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn, bool thumb)
 {
     if (buf_size < 4)
-        return -1;
+        return 0;
 
     if (thumb) {
         buf[0] = (insn >> 16) & 0xff;
