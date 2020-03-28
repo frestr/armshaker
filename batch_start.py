@@ -199,10 +199,14 @@ def start_procs(search_range, args):
                '-z' if args.random else '',
                '-g' if args.log_reg_changes else '',
                '-q']
-        proc = subprocess.Popen(cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                stdin=subprocess.PIPE)
+
+        try:
+            proc = subprocess.Popen(cmd,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    stdin=subprocess.PIPE)
+        except FileNotFoundError:
+            return 0
         procs.append(proc)
 
     return procs
@@ -222,6 +226,10 @@ def main(stdscr, args):
     search_range = (args.start if type(args.start) is int else args.start[0],
                     args.end if type(args.end) is int else args.end[0])
     procs = start_procs(search_range, args)
+
+    if procs == 0:
+        return 'The fuzzer binary was not found. It likely needs to be ' \
+               'compiled with "make" first.'
 
     curses.use_default_colors()
     curses.cbreak()
