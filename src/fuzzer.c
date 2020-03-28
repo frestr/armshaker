@@ -644,32 +644,39 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 
     memcpy(&result->regs_before, &regs, sizeof(regs));
 
-    // Execute the instruction
-    ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
-    waitpid(slave_pid, &status, 0);
+    int signo = 0;
+    do {
+        // Execute the instruction
+        ptrace(PTRACE_CONT, slave_pid, NULL, NULL);
+        waitpid(slave_pid, &status, 0);
 
-    if (WIFEXITED(status)) {
-        // TODO: Refork slave if it died
-        result->died = true;
-        return;
-    }
+        if (WIFEXITED(status)) {
+            // TODO: Refork slave if it died
+            result->died = true;
+            return;
+        }
 
-    result->died = false;
+        result->died = false;
 
-    // Store results
-    if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
-        perror("getregs failed");
-    }
-    memcpy(&result->regs_after, &regs, sizeof(regs));
+        // Store results
+        if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
+            perror("getregs failed");
+        }
+        memcpy(&result->regs_after, &regs, sizeof(regs));
 
-    siginfo_t siginfo;
-    if (ptrace(PTRACE_GETSIGINFO, slave_pid, NULL, &siginfo) == -1) {
-        perror("getsiginfo failed");
-    }
+        siginfo_t siginfo;
+        if (ptrace(PTRACE_GETSIGINFO, slave_pid, NULL, &siginfo) == -1) {
+            perror("getsiginfo failed");
+        }
 
-    int signo = siginfo.si_signo;
-    result->signal = (signo == SIGTRAP) ? 0 : signo;
-
+        signo = siginfo.si_signo;
+        result->signal = (signo == SIGTRAP) ? 0 : signo;
+        /*
+         * If the terminal window is resized while executing, the slave
+         * might raise a SIGWINCH signal before executing the instruction.
+         * In such cases the execution must be repeated.
+         */
+    } while (signo == SIGWINCH && *pc_reg == insn_loc);
 
     // Fix the pc if the exception prevented the pc from advancing
     if (*pc_reg == insn_loc) {
