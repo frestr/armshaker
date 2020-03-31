@@ -8,6 +8,13 @@ if [[ $# -eq 0 || ! "$1" =~ ^(0x)?(([0-9a-f]{4}){1,2})$ ]]; then
     exit 1
 fi
 
+# ARCH should be 'aarch64', 'arm' or empty
+if [[ $ARCH != "" ]]; then
+    arch=$ARCH
+else
+    arch=$(uname -m)
+fi
+
 insn=${BASH_REMATCH[2]}
 
 bytes=("${insn:0:2}" "${insn:2:2}" "${insn:4:2}" "${insn:6:2}")
@@ -27,7 +34,7 @@ fi
 file=$(mktemp)
 echo -ne "$bytestring" > $file
 
-if [[ "$(uname -m)" =~ "arm" ]]; then
+if [[ "$arch" =~ "arm" ]]; then
     arch="arm"
     if [[ "$2" = "-t" ]]; then
         obj_thumb="--disassembler-options=force-thumb"

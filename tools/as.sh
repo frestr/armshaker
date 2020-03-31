@@ -7,7 +7,14 @@ if [[ $# -eq 0 ]]; then
     echo "Usage: $(basename "$0") <asm_insn> [-t]"
 fi
 
-if [[ "$(uname -m)" = "aarch64" ]]; then
+# ARCH can be 'aarch64' or 'arm'
+if [[ $ARCH != "" ]]; then
+    arch=$ARCH
+else
+    arch=$(uname -m)
+fi
+
+if [[ "$arch" = "aarch64" ]]; then
     fpu=""
 else
     fpu="-mfpu=crypto-neon-fp-armv8"
