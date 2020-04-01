@@ -19,13 +19,16 @@ typedef struct {
     struct USER_REGS_TYPE regs_before;
     struct USER_REGS_TYPE regs_after;
 
+    struct USER_VFPREGS_TYPE vfp_regs_before;
+    struct USER_VFPREGS_TYPE vfp_regs_after;
+
     uint32_t insn;
     uint32_t signal;
     bool died;
 } execution_result;
 
 void print_statusline(search_status*);
-void print_execution_result(execution_result*);
+void print_execution_result(execution_result*, bool);
 
 int write_statusfile(char*, search_status*);
-int write_logfile(char*, execution_result*, bool, bool);
+int write_logfile(char*, execution_result*, bool, bool, bool);

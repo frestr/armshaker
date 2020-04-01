@@ -79,7 +79,9 @@ void slave_loop_thumb(void);
 pid_t spawn_slave(bool);
 int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
-void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, execution_result*);
+int custom_ptrace_getvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
+int custom_ptrace_setvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
+void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, bool, execution_result*);
 bool is_thumb32(uint32_t);
 uint64_t get_next_instruction(uint64_t, uint64_t, bool);
 void print_help(char*);
@@ -553,27 +555,51 @@ int custom_ptrace_setregs(pid_t pid, struct USER_REGS_TYPE *regs)
 #endif
 }
 
-void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, execution_result *result)
+int custom_ptrace_getvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
+{
+#ifdef __aarch64__
+    struct iovec iovec = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_GETVFPREGSET, pid, NT_PRSTATUS, &iovec);
+#else
+    return ptrace(PTRACE_GETVFPREGS, pid, NULL, regs);
+#endif
+}
+
+int custom_ptrace_setvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
+{
+#ifdef __aarch64__
+    struct iovec iovec = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_SETVFPREGSET, pid, NT_PRSTATUS, &iovec);
+#else
+    return ptrace(PTRACE_SETVFPREGS, pid, NULL, regs);
+#endif
+}
+
+
+void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, bool vector_regs, execution_result *result)
 {
     int status;
 
     pid_t slave_pid = *slave_pid_ptr;
 
-    // Set regs etc.
     struct USER_REGS_TYPE regs;
-
     if (custom_ptrace_getregs(slave_pid, &regs) == -1) {
         perror("getregs failed");
+    }
+
+    struct USER_VFPREGS_TYPE vfp_regs;
+    if (vector_regs) {
+        if (custom_ptrace_getvfpregs(slave_pid, &vfp_regs) == -1) {
+            perror("getvfpregs failed");
+        }
     }
 
 #ifdef __aarch64__
     static unsigned long long insn_loc = 0;
     unsigned long long *pc_reg = &regs.pc;
-    unsigned long long *regs_ptr = regs.regs;
 #else
     static unsigned long insn_loc = 0;
     unsigned long *pc_reg = &regs.uregs[A32_pc];
-    unsigned long *regs_ptr = regs.uregs;
 #endif
 
     if (insn_loc == 0) {
@@ -623,10 +649,11 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     for (uint32_t i = 0; i < UREG_COUNT; ++i) {
 #ifdef __aarch64__
         uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
+        regs.regs[i] = random_regs ? rand_val : 0;
 #else
         uint32_t rand_val = rand();
+        regs.uregs[i] = random_regs ? rand_val : 0;
 #endif
-        regs_ptr[i] = random_regs ? rand_val : 0;
     }
 
     *pc_reg = insn_loc;
@@ -643,6 +670,27 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     }
 
     memcpy(&result->regs_before, &regs, sizeof(regs));
+
+    if (vector_regs) {
+        for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
+            uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
+#ifdef __aarch64__
+            vfp_regs.vregs[i] = random_regs ? rand_val : 0;
+#else
+            vfp_regs.fpregs[i] = random_regs ? rand_val : 0;
+#endif
+        }
+#ifdef __aarch64__
+        vfp_regs.fpsr = 0;
+        vfp_regs.fpcr = 0;
+#else
+        vfp_regs.fpscr = 0;
+#endif
+        if (custom_ptrace_setvfpregs(slave_pid, &vfp_regs) == -1) {
+            perror("setvfpregs failed");
+        }
+        memcpy(&result->vfp_regs_before, &vfp_regs, sizeof(vfp_regs));
+    }
 
     int signo = 0;
     do {
@@ -663,6 +711,13 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
             perror("getregs failed");
         }
         memcpy(&result->regs_after, &regs, sizeof(regs));
+
+        if (vector_regs) {
+            if (custom_ptrace_getvfpregs(slave_pid, &vfp_regs) == -1) {
+                perror("getvfpregs failed");
+            }
+            memcpy(&result->vfp_regs_after, &vfp_regs, sizeof(vfp_regs));
+        }
 
         siginfo_t siginfo;
         if (ptrace(PTRACE_GETSIGINFO, slave_pid, NULL, &siginfo) == -1) {
@@ -735,7 +790,8 @@ struct option long_options[] = {
     {"mask",            required_argument,  NULL, 'm'},
     {"thumb",           no_argument,        NULL, 't'},
     {"random",          no_argument,        NULL, 'z'},
-    {"log-reg-changes", no_argument,        NULL, 'g'}
+    {"log-reg-changes", no_argument,        NULL, 'g'},
+    {"vector",          no_argument,        NULL, 'V'}
 };
 
 void print_help(char *cmd_name)
@@ -775,11 +831,12 @@ Logging options:\n\
 \n\
 Ptrace options (only available with -p option):\n\
         -t, --thumb             Use the thumb instruction set (only available on AArch32).\n\
-                                (Note: 16-bit thumb instructions has the format XXXX0000.\n\
+                                (Note: 16-bit thumb instructions have the format XXXX0000.\n\
                                 So to test e.g. instruction 46c0, use 46c00000.)\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
         -z, --random            Load the registers with random values, instead of all 0s.\n\
-        -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n"
+        -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n\
+        -V, --vector            Set and log vector registers (d0-d31, fpscr) when fuzzing.\n"
     );
 }
 
@@ -799,12 +856,13 @@ int main(int argc, char **argv)
     bool thumb = false;
     bool random_regs = false;
     bool only_reg_changes = false;
+    bool include_vector_regs = false;
 
     char *file_suffix = NULL;
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzg", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzgV", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -910,6 +968,9 @@ int main(int argc, char **argv)
             case 'g':
                 only_reg_changes = true;
                 break;
+            case 'V':
+                include_vector_regs = true;
+                break;
             default:
                 print_help(argv[0]);
                 return 1;
@@ -927,7 +988,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if ((print_regs || random_regs || only_reg_changes) && !use_ptrace) {
+    if ((print_regs || random_regs || only_reg_changes || include_vector_regs) && !use_ptrace) {
         fprintf(stderr, "One or more of the supplied options require ptrace execution. "
                         "Run with -p option.\n");
         return 1;
@@ -1136,7 +1197,8 @@ int main(int argc, char **argv)
          */
         if (use_ptrace) {
             execute_insn_slave(&slave_pid, insn_bytes, buf_length,
-                               thumb, random_regs, &exec_result);
+                               thumb, random_regs, include_vector_regs,
+                               &exec_result);
 
             if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
@@ -1145,7 +1207,7 @@ int main(int argc, char **argv)
 
             last_insn_signum = exec_result.signal;
             if (print_regs)
-                print_execution_result(&exec_result);
+                print_execution_result(&exec_result, include_vector_regs);
         } else {
             assert(!thumb);
 
@@ -1153,7 +1215,8 @@ int main(int argc, char **argv)
         }
 
         if (last_insn_signum != SIGILL) {
-            if (write_logfile(log_path, &exec_result, use_ptrace, only_reg_changes) == -1) {
+            if (write_logfile(log_path, &exec_result, use_ptrace,
+                              only_reg_changes, include_vector_regs) == -1) {
                 fprintf(stderr, "ERROR: Failed to write to logfile\n");
             }
             ++curr_status.hidden_instructions_found;

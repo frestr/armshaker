@@ -46,7 +46,7 @@ void print_statusline(search_status *status)
     fflush(stdout);
 }
 
-void print_execution_result(execution_result *result)
+void print_execution_result(execution_result *result, bool include_vector_regs)
 {
     printf("\ninsn: %08" PRIx32 "\n", result->insn);
 #ifdef __aarch64__
@@ -65,6 +65,16 @@ void print_execution_result(execution_result *result)
         if (i != A32_ORIG_r0)
             printf("%s:\t%08lx  %08lx\n", REG_STR[i],
                     result->regs_before.uregs[i], result->regs_after.uregs[i]);
+    }
+
+    if (include_vector_regs) {
+        for (uint32_t i = 0; i < VFPREG_COUNT; ++i)
+            printf("d%" PRIu32 ":\t%016llx\t%016llx\n",
+                    i, result->vfp_regs_before.fpregs[i],
+                    result->vfp_regs_after.fpregs[i]);
+        printf("fpscr:\t\t%08lx\t\t%08lx\n",
+               result->vfp_regs_before.fpscr,
+               result->vfp_regs_after.fpscr);
     }
 #endif
     printf("signal: %d\n", result->signal);
@@ -112,7 +122,7 @@ int write_statusfile(char *filepath, search_status *status)
     return 0;
 }
 
-int write_logfile(char *filepath, execution_result *exec_result, bool write_regs, bool only_reg_changes)
+int write_logfile(char *filepath, execution_result *exec_result, bool write_regs, bool only_reg_changes, bool include_vector_regs)
 {
     FILE *log_fp = fopen(filepath, "a");
 
@@ -157,17 +167,47 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
                             exec_result->regs_before.pstate, exec_result->regs_after.pstate);
         }
 #else
-        unsigned long *regs0 = exec_result->regs_before.uregs;
-        unsigned long *regs1 = exec_result->regs_after.uregs;
-
         for (uint32_t i = 0; i < UREG_COUNT; ++i) {
             if (i != A32_ORIG_r0) {
                 if (only_reg_changes) {
-                    if (regs0[i] != regs1[i])
-                        fprintf(log_fp, ",%s:%lx-%lx", REG_STR[i], regs0[i], regs1[i]);
+                    if (exec_result->regs_before.uregs[i]
+                            != exec_result->regs_after.uregs[i])
+                        fprintf(log_fp, ",%s:%lx-%lx", REG_STR[i],
+                                exec_result->regs_before.uregs[i],
+                                exec_result->regs_after.uregs[i]);
                 } else {
-                    fprintf(log_fp, ",%lx-%lx", regs0[i], regs1[i]);
+                    fprintf(log_fp, ",%lx-%lx", exec_result->regs_before.uregs[i],
+                            exec_result->regs_after.uregs[i]);
                 }
+            }
+        }
+
+        if (include_vector_regs) {
+            for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
+                if (only_reg_changes) {
+                    if (exec_result->vfp_regs_before.fpregs[i]
+                            != exec_result->vfp_regs_after.fpregs[i]) {
+                        fprintf(log_fp,",d%" PRIu32 ":%llx-%llx", i,
+                                exec_result->vfp_regs_before.fpregs[i],
+                                exec_result->vfp_regs_after.fpregs[i]);
+                    }
+                } else {
+                    fprintf(log_fp,",%llx-%llx",
+                            exec_result->vfp_regs_before.fpregs[i],
+                            exec_result->vfp_regs_after.fpregs[i]);
+                }
+            }
+            if (only_reg_changes) {
+                if (exec_result->vfp_regs_before.fpscr
+                        != exec_result->vfp_regs_after.fpscr) {
+                    fprintf(log_fp, ",fpscr:%lx-%lx",
+                            exec_result->vfp_regs_before.fpscr,
+                            exec_result->vfp_regs_after.fpscr);
+                }
+            } else {
+                fprintf(log_fp, ",%lx-%lx",
+                        exec_result->vfp_regs_before.fpscr,
+                        exec_result->vfp_regs_after.fpscr);
             }
         }
 #endif
