@@ -28,7 +28,7 @@ file=$(mktemp)
 out=$(echo "$1" | as -march=armv8-a -mcpu=all $fpu $opts -o "$file" 2>&1)
 
 if [[ $? -eq 1 ]]; then
-    echo "$out" | tail -n1 | cut -d' ' -f3-
+    echo "$out"
     exit 1
 fi
 
