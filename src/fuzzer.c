@@ -559,7 +559,7 @@ int custom_ptrace_getvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
 {
 #ifdef __aarch64__
     struct iovec iovec = { regs, sizeof(*regs) };
-    return ptrace(PTRACE_GETVFPREGSET, pid, NT_PRSTATUS, &iovec);
+    return ptrace(PTRACE_GETREGSET, pid, NT_PRFPREG, &iovec);
 #else
     return ptrace(PTRACE_GETVFPREGS, pid, NULL, regs);
 #endif
@@ -569,7 +569,7 @@ int custom_ptrace_setvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
 {
 #ifdef __aarch64__
     struct iovec iovec = { regs, sizeof(*regs) };
-    return ptrace(PTRACE_SETVFPREGSET, pid, NT_PRSTATUS, &iovec);
+    return ptrace(PTRACE_SETREGSET, pid, NT_PRFPREG, &iovec);
 #else
     return ptrace(PTRACE_SETVFPREGS, pid, NULL, regs);
 #endif
@@ -675,7 +675,8 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
         for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
             uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
 #ifdef __aarch64__
-            vfp_regs.vregs[i] = random_regs ? rand_val : 0;
+            uint64_t rand_val2 = ((uint64_t)rand() << 32) | rand();
+            vfp_regs.vregs[i] = random_regs ? ((__int128)rand_val2 << 64) | rand_val : 0;
 #else
             vfp_regs.fpregs[i] = random_regs ? rand_val : 0;
 #endif

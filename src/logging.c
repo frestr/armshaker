@@ -60,6 +60,22 @@ void print_execution_result(execution_result *result, bool include_vector_regs)
            result->regs_before.sp, result->regs_after.sp,
            result->regs_before.pc, result->regs_after.pc,
            result->regs_before.pstate, result->regs_before.pstate);
+
+    if (include_vector_regs) {
+        for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
+            uint64_t upper_bef = result->vfp_regs_before.vregs[i] >> 64;
+            uint64_t lower_bef = (uint64_t)result->vfp_regs_before.vregs[i];
+            uint64_t upper_aft = result->vfp_regs_after.vregs[i] >> 64;
+            uint64_t lower_aft = (uint64_t)result->vfp_regs_after.vregs[i];
+            printf("v%" PRIu32 ":\t%016" PRIx64 "%016" PRIx64 "\t"
+                    "%016" PRIx64 "%016" PRIx64"\n",
+                    i, upper_bef, lower_bef, upper_aft, lower_aft);
+        }
+        printf("fpsr:\t%016x\n"
+               "fpcr:\t%016x\n",
+               result->vfp_regs_before.fpsr,
+               result->vfp_regs_after.fpcr);
+    }
 #else
     for (uint32_t i = 0; i < UREG_COUNT; ++i) {
         if (i != A32_ORIG_r0)
@@ -134,16 +150,15 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
 
     if (write_regs) {
 #ifdef __aarch64__
-        unsigned long long *regs0 = exec_result->regs_before.regs;
-        unsigned long long *regs1 = exec_result->regs_after.regs;
-
         for (uint32_t i = 0; i < UREG_COUNT; ++i) {
             if (only_reg_changes) {
-                if (regs0[i] != regs1[i])
+                if (exec_result->regs_before.regs[i] != exec_result->regs_after.regs[i])
                     fprintf(log_fp, ",x%" PRIu32 ":%llx-%llx",
-                            i, regs0[i], regs1[i]);
+                            i, exec_result->regs_before.regs[i],
+                            exec_result->regs_after.regs[i]);
             } else {
-                fprintf(log_fp, ",%llx-%llx", regs0[i], regs1[i]);
+                fprintf(log_fp, ",%llx-%llx", exec_result->regs_before.regs[i],
+                        exec_result->regs_after.regs[i]);
             }
         }
 
@@ -165,6 +180,48 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
                             exec_result->regs_before.sp, exec_result->regs_after.sp,
                             exec_result->regs_before.pc, exec_result->regs_after.pc,
                             exec_result->regs_before.pstate, exec_result->regs_after.pstate);
+        }
+
+        if (include_vector_regs) {
+            for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
+                uint64_t upper_bef = exec_result->vfp_regs_before.vregs[i] >> 64;
+                uint64_t lower_bef = (uint64_t)exec_result->vfp_regs_before.vregs[i];
+                uint64_t upper_aft = exec_result->vfp_regs_after.vregs[i] >> 64;
+                uint64_t lower_aft = (uint64_t)exec_result->vfp_regs_after.vregs[i];
+
+                if (only_reg_changes) {
+                    if (exec_result->vfp_regs_before.vregs[i]
+                            != exec_result->vfp_regs_after.vregs[i]) {
+                        fprintf(log_fp, ",v%" PRIu32 ":%016" PRIx64 "%016" PRIx64 "-"
+                                "%016" PRIx64 "%016" PRIx64 "",
+                                i, upper_bef, lower_bef, upper_aft, lower_aft);
+                    }
+                } else {
+                    fprintf(log_fp, ",%016" PRIx64 "%016" PRIx64 "-"
+                            "%016" PRIx64 "%016" PRIx64 "",
+                            upper_bef, lower_bef, upper_aft, lower_aft);
+                }
+            }
+            if (only_reg_changes) {
+                if (exec_result->vfp_regs_before.fpsr
+                        != exec_result->vfp_regs_after.fpsr) {
+                    printf(",fpsr:%x-%x",
+                           exec_result->vfp_regs_before.fpsr,
+                           exec_result->vfp_regs_after.fpsr);
+                }
+                if (exec_result->vfp_regs_before.fpcr
+                        != exec_result->vfp_regs_after.fpcr) {
+                    printf(",fpcr:%x-%x",
+                           exec_result->vfp_regs_before.fpcr,
+                           exec_result->vfp_regs_after.fpcr);
+                }
+            } else {
+                printf(",%x-%x,%x-%x",
+                       exec_result->vfp_regs_before.fpsr,
+                       exec_result->vfp_regs_after.fpsr,
+                       exec_result->vfp_regs_before.fpcr,
+                       exec_result->vfp_regs_after.fpcr);
+            }
         }
 #else
         for (uint32_t i = 0; i < UREG_COUNT; ++i) {
