@@ -836,6 +836,8 @@ Ptrace options (only available with -p option):\n\
                                 So to test e.g. instruction 46c0, use 46c00000.)\n\
         -r, --print-regs        Print register values before/after instruction execution.\n\
         -z, --random            Load the registers with random values, instead of all 0s.\n\
+                                Note that the random values are generated at startup, and\n\
+                                remains constant throughout the session.\n\
         -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n\
         -V, --vector            Set and log vector registers (d0-d31, fpscr) when fuzzing.\n"
     );
@@ -858,6 +860,7 @@ int main(int argc, char **argv)
     bool random_regs = false;
     bool only_reg_changes = false;
     bool include_vector_regs = false;
+    time_t start_time = time(NULL);
 
     char *file_suffix = NULL;
     char *endptr;
@@ -963,7 +966,6 @@ int main(int argc, char **argv)
 #endif
                 break;
             case 'z':
-                srand(time(NULL));
                 random_regs = true;
                 break;
             case 'g':
@@ -1197,6 +1199,14 @@ int main(int argc, char **argv)
          * slave or page execution within the fuzzer process.
          */
         if (use_ptrace) {
+            if (random_regs) {
+                /*
+                 * Reseed with the same seed to keep the values from changing
+                 * between iterations, as changing values makes comparing side-effects
+                 * across instructions a lot harder.
+                 */
+                srand(start_time);
+            }
             execute_insn_slave(&slave_pid, insn_bytes, buf_length,
                                thumb, random_regs, include_vector_regs,
                                &exec_result);
