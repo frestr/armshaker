@@ -676,7 +676,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
             uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
 #ifdef __aarch64__
             uint64_t rand_val2 = ((uint64_t)rand() << 32) | rand();
-            vfp_regs.vregs[i] = random_regs ? ((__int128)rand_val2 << 64) | rand_val : 0;
+            vfp_regs.vregs[i] = random_regs ? ((__uint128_t)rand_val2 << 64) | rand_val : 0;
 #else
             vfp_regs.fpregs[i] = random_regs ? rand_val : 0;
 #endif
