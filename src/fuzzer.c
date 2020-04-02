@@ -704,6 +704,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 #ifdef __aarch64__
     regs.sp = random_regs ? ((uint64_t)rand() << 32) | rand() : 0;
     regs.pstate = 0;
+    (void)set_cond;
 #else
     regs.uregs[A32_cpsr] = 0x10;  // user mode
     if (thumb)
