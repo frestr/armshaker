@@ -66,7 +66,8 @@ void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
 int init_insn_page(void);
-void execute_insn_page(uint8_t*, size_t, execution_result*);
+void execute_insn_page(uint8_t*, size_t, bool, execution_result*);
+uint8_t cond_prefix_to_flags(uint8_t);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 size_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
@@ -81,7 +82,7 @@ int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_getvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
 int custom_ptrace_setvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
-void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, bool, execution_result*);
+void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, bool, bool, execution_result*);
 bool is_thumb32(uint32_t);
 uint64_t get_next_instruction(uint64_t, uint64_t, bool);
 void print_help(char*);
@@ -254,10 +255,10 @@ void execution_boilerplate(void)
             "mov r11, %[reg_init]       \n"
             "mov r12, %[reg_init]       \n"
             "mov lr, %[reg_init]        \n"
-            // Setting the sp to 0 seems to mess up the
-            // signal handling
-            /* "mov sp, %[reg_init]        \n" */
-            "msr cpsr_cxsf, #0x10       \n"
+
+            // Note: this msr insn must be directly above the nop
+            // because of the -C option (excluding the label ofc)
+            "msr cpsr_f, #0             \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
@@ -265,7 +266,6 @@ void execution_boilerplate(void)
             // This instruction will be replaced with the one to be tested
             "nop                        \n"
 
-            "msr cpsr_cxsf, #0x10       \n"
             "vmov sp, s0                \n"
 
             // Restore all gregs
@@ -304,10 +304,21 @@ int init_insn_page(void)
     return 0;
 }
 
-void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, execution_result *exec_result)
+void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, bool set_cond, execution_result *exec_result)
 {
-    /* // Jumps to the instruction buffer */
+    // Jumps to the instruction buffer
     void (*exec_page)() = (void(*)()) insn_page;
+
+    if (set_cond) {
+        uint8_t flags = cond_prefix_to_flags((insn_bytes[3] >> 4) & 0xf);
+        /*
+         * Reset and update the imm12 field of the msr instruction to include
+         * the new flag bits. A bit nasty, but it works^tm. The 0x200 is for
+         * rotation and part of the imm field encoding.
+         */
+        ((uint32_t*)insn_page)[insn_offset-1] &= ~0xfff;
+        ((uint32_t*)insn_page)[insn_offset-1] |= (0x200 | flags);
+    }
 
     // Update the first instruction in the instruction buffer
     memcpy(insn_page + insn_offset * 4, insn_bytes, insn_length);
@@ -315,11 +326,11 @@ void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, execution_result
     last_insn_signum = 0;
 
     /*
-     * Clear insn_page (at the insn to be tested)
+     * Clear insn_page (at the insn to be tested + the msr insn before)
      * in the d- and icache
      * (some instructions might be skipped otherwise.)
      */
-    __clear_cache(insn_page + insn_offset * 4,
+    __clear_cache(insn_page + (insn_offset-1) * 4,
                   insn_page + insn_offset * 4 + insn_length);
 
     executing_insn = 1;
@@ -330,6 +341,39 @@ void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, execution_result
     executing_insn = 0;
 
     exec_result->signal = last_insn_signum;
+}
+
+uint8_t cond_prefix_to_flags(uint8_t cond)
+{
+    /*
+     * The cond prefix to flags mapping can be found on p. 3909
+     * in Arm ARM.
+     *
+     * Return the flags in the same order as they appear in the
+     * CPSR, so NZCV.
+     */
+    uint8_t  n = 0;
+    uint8_t  z = 0;
+    uint8_t  c = 0;
+    uint8_t  v = 0;
+    switch (cond & 0xf) {
+        case 0x0: z = 1; break;
+        case 0x1: z = 0; break;
+        case 0x2: c = 1; break;
+        case 0x3: c = 0; break;
+        case 0x4: n = 1; break;
+        case 0x5: n = 0; break;
+        case 0x6: v = 1; break;
+        case 0x7: v = 0; break;
+        case 0x8: c = 1; z = 0; break;
+        case 0x9: c = 0; break; // ... or z = 1
+        case 0xa: n = 0; v = 0; break; // n == v
+        case 0xb: n = 0; v = 1; break; // n != v
+        case 0xc: z = 0; n = 0; v = 0; break; // z == 0 and n == v
+        case 0xd: z = 1; break; // ... or n != v
+        default: break;
+    }
+    return (n << 3) | (z << 2) | (c << 1) | v;
 }
 
 uint64_t get_nano_timestamp(void) {
@@ -453,7 +497,7 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
         assert(insn_size == 4);
     }
 
-    // Store the resulting stsring
+    // Store the resulting string
     snprintf(disas_str, disas_str_size, "%s", ss.buffer);
 
     ss.reenter = false;
@@ -576,7 +620,7 @@ int custom_ptrace_setvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
 }
 
 
-void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, bool vector_regs, execution_result *result)
+void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, bool vector_regs, bool set_cond, execution_result *result)
 {
     int status;
 
@@ -664,6 +708,10 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
     regs.uregs[A32_cpsr] = 0x10;  // user mode
     if (thumb)
         regs.uregs[A32_cpsr] |= 0x20;   // Thumb execution
+    if (set_cond) {
+        uint8_t flags = cond_prefix_to_flags((insn_bytes[3] >> 4) & 0xf);
+        regs.uregs[A32_cpsr] |= (flags << 28);
+    }
 #endif
     if (custom_ptrace_setregs(slave_pid, &regs) == -1) {
         perror("setregs failed");
@@ -792,7 +840,8 @@ struct option long_options[] = {
     {"thumb",           no_argument,        NULL, 't'},
     {"random",          no_argument,        NULL, 'z'},
     {"log-reg-changes", no_argument,        NULL, 'g'},
-    {"vector",          no_argument,        NULL, 'V'}
+    {"vector",          no_argument,        NULL, 'V'},
+    {"cond",            no_argument,        NULL, 'C'}
 };
 
 void print_help(char *cmd_name)
@@ -825,6 +874,11 @@ Execution options:\n\
                                 chance of the fuzzer crashing in case hidden instructions\n\
                                 with certain side-effects are found. It also enables\n\
                                 logging register content changes on hidden instructions.\n\
+        -C, --cond              On AArch32: Set the condition flags in the CPSR to match the\n\
+                                condition prefix in the instruction encoding. This ensures\n\
+                                that undefined instructions with a normally non-matching\n\
+                                condition prefix won't be skipped, as is the case for some\n\
+                                ISA implementations.\n\
 \n\
 Logging options:\n\
         -l, --log-suffix        Add a suffix to the log and status file.\n\
@@ -860,13 +914,14 @@ int main(int argc, char **argv)
     bool random_regs = false;
     bool only_reg_changes = false;
     bool include_vector_regs = false;
+    bool set_cond = false;
     time_t start_time = time(NULL);
 
     char *file_suffix = NULL;
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzgV", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzgVC", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -973,6 +1028,14 @@ int main(int argc, char **argv)
                 break;
             case 'V':
                 include_vector_regs = true;
+                break;
+            case 'C':
+#ifdef __aarch64__
+                fprintf(stderr, "-C option is only available on AArch32.\n");
+                return 1;
+#else
+                set_cond = true;
+#endif
                 break;
             default:
                 print_help(argv[0]);
@@ -1209,7 +1272,7 @@ int main(int argc, char **argv)
             }
             execute_insn_slave(&slave_pid, insn_bytes, buf_length,
                                thumb, random_regs, include_vector_regs,
-                               &exec_result);
+                               set_cond, &exec_result);
 
             if (exec_result.died) {
                 fprintf(stderr, "slave died. quitting...\n");
@@ -1222,7 +1285,7 @@ int main(int argc, char **argv)
         } else {
             assert(!thumb);
 
-            execute_insn_page(insn_bytes, buf_length, &exec_result);
+            execute_insn_page(insn_bytes, buf_length, set_cond, &exec_result);
         }
 
         if (last_insn_signum != SIGILL) {

@@ -198,6 +198,8 @@ def start_procs(search_range, args):
                '-t' if args.thumb else '',
                '-z' if args.random else '',
                '-g' if args.log_reg_changes else '',
+               '-V' if args.vector else '',
+               '-C' if args.cond else '',
                '-q']
 
         try:
@@ -344,6 +346,12 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--log-reg-changes',
                         action='store_true',
                         help='For hidden instructions, only log registers that changed value.')
+    parser.add_argument('-V', '--vector',
+                        action='store_true',
+                        help='Set and log vector registers (d0-d31, fpscr) when fuzzing.')
+    parser.add_argument('-C', '--cond',
+                        action='store_true',
+                        help='Set cpsr flags to match instruction condition prefix.')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)
