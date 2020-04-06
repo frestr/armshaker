@@ -10,7 +10,7 @@
 
 quit() {
     echo "Aborting"
-    killall fuzzer
+    killall -9 fuzzer
     echo
     exit 0
 }
