@@ -17,19 +17,24 @@ quit() {
 
 trap quit 2  # SIGINT
 
-if [ "$PROCS" = "" ] ; then
+if [ ! -e "fuzzer" ]; then
+    echo "Could not find fuzzer binary. Has it been compiled?"
+    exit 1
+fi
+
+if [ "$PROCS" = "" ]; then
     procs=$(nproc)
 else
     procs=$PROCS
 fi
 
-if [ "$START" = "" ] ; then
+if [ "$START" = "" ]; then
     range_start=0
 else
     range_start=$((0x$START))
 fi
 
-if [ "$END" = "" ] ; then
+if [ "$END" = "" ]; then
     range_end=$((0xffffffff))
 else
     range_end=$((0x$END))
