@@ -166,6 +166,10 @@ void execution_boilerplate(void)
             "stp x28, x29, [sp, #-16]!  \n"
             "stp x30, xzr, [sp, #-16]!  \n"
 
+            // Store the stack pointer
+            "mov x30, sp                \n"
+            "mov v0.2d[0], x30          \n"
+
             /*
              * Reset the regs to make insn execution deterministic
              * and avoid program corruption.
@@ -201,12 +205,17 @@ void execution_boilerplate(void)
             "mov x28, %[reg_init]       \n"
             "mov x29, %[reg_init]       \n"
             "mov x30, %[reg_init]       \n"
+            "mov sp, x30                \n"
 
             ".global insn_location      \n"
             "insn_location:             \n"
 
             // This instruction will be replaced with the one to be tested
             "nop                        \n"
+
+            // Restore the stack pointer
+            "mov x30, v0.2d[0]          \n"
+            "mov sp, x30                \n"
 
             // Restore all gregs
             "ldp x30, xzr, [sp], #16    \n"
