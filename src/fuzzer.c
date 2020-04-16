@@ -62,6 +62,12 @@ volatile sig_atomic_t last_insn_signum = 0;
 volatile sig_atomic_t executing_insn = 0;
 uint32_t insn_offset = 0;
 
+static uint8_t sig_stack_array[SIGSTKSZ];
+stack_t sig_stack = {
+    .ss_size = SIGSTKSZ,
+    .ss_sp = sig_stack_array,
+};
+
 void signal_handler(int, siginfo_t*, void*);
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
@@ -117,10 +123,12 @@ void signal_handler(int sig_num, siginfo_t *sig_info, void *uc_ptr)
 
 void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int signum)
 {
-    struct sigaction s;
+    sigaltstack(&sig_stack, NULL);
 
-    s.sa_sigaction = handler;
-    s.sa_flags = SA_SIGINFO;
+    struct sigaction s = {
+        .sa_sigaction = handler,
+        .sa_flags = SA_SIGINFO | SA_ONSTACK,
+    };
 
     sigfillset(&s.sa_mask);
 
@@ -255,6 +263,7 @@ void execution_boilerplate(void)
             "mov r11, %[reg_init]       \n"
             "mov r12, %[reg_init]       \n"
             "mov lr, %[reg_init]        \n"
+            "mov sp, %[reg_init]        \n"
 
             // Note: this msr insn must be directly above the nop
             // because of the -C option (excluding the label ofc)
