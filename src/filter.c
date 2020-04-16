@@ -954,21 +954,20 @@ static bool is_unpredictable_crc32(uint32_t insn)
 }
 
 /*
- * Linux configures traps on certain undefined instructions, namely
- * 'udf #16' (e7f001f0), but without regarding the condition prefix.
- * (See Linux source, arch/arm/kernel/ptrace.c:213)
+ * Linux traps certain udf instructions, primarily to be used as
+ * breakpoints. Namey, 'udf #16' works as a bkpt substitute, while
+ * 'udf #25' and '#udf 26' work as uprobe entry and return, respectively.
  *
- * This makes instructions [0-9a-f]7f001f0 raise SIGTRAP signals instead
- * of the normal SIGILL, which makes the fuzzer then (incorrectly) mark
- * them as hidden.
+ * However, Linux traps these instructions regardless of the condition
+ * prefix, which according to Arm ARM should be e (always); any other
+ * prefix is unallocated. This makes the disassemblers not recognize the
+ * udf's with an incorrect prefix, which in turn makes the fuzzer
+ * mark them as hidden because of the differing signal.
  *
- * I think that strictly speaking, Linux shouldn't hook on the instructions
- * with a prefix different than e, as the manual doesn't guarantee that
- * these instructions will be permanently undefined, but rather that
- * they are unallocated.
- *
- * Still, we're not interested in finding instructions 'trapped' by
- * Linux, so filter them away.
+ * Since this (apparently) is intended behavior by the kernel, filter
+ * out those instructions, as these instructions aren't "hidden" nor
+ * the result of a bug -- even though it can kind of be considered as
+ * a bug in the kernel.
  */
 static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 {
@@ -990,8 +989,9 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
          */
         return ((insn & 0x0000ffff) == 0x0000de01);
     }
-    // udf #16 with arbitrary cond prefix
-    return ((insn & 0x0fffffff) == 0x07f001f0);
+    return (   (insn & 0x0fffffff) == 0x07f001f0    // udf #16 = bkpt
+            || (insn & 0x0fffffff) == 0x07f001f9    // udf #25 = uprobe entry
+            || (insn & 0x0fffffff) == 0x07f001fa);  // udf #26 = uprobe return
 #endif
 }
 
