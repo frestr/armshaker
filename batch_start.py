@@ -194,7 +194,7 @@ def start_procs(search_range, args):
                '-c' if args.discreps else '',
                '-p' if args.ptrace else '',
                '-n' if args.no_exec else '',
-               '-f' if args.filter else '',
+               '-f{}'.format(args.filter[0]) if args.filter and args.filter[0] > 0 else '',
                '-t' if args.thumb else '',
                '-z' if args.random else '',
                '-g' if args.log_reg_changes else '',
@@ -335,8 +335,9 @@ if __name__ == '__main__':
                         action='store_true',
                         help='Don\'t execute instructions, just disassemble them.')
     parser.add_argument('-f', '--filter',
-                        action='store_true',
-                        help='Filter certain instructions')
+                        type=int, nargs=1,
+                        help='Filter certain instructions',
+                        metavar='LEVEL', default=0)
     parser.add_argument('-t', '--thumb',
                         action='store_true',
                         help='Use the thumb instruction set (only on AArch32).')

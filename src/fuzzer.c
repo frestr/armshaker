@@ -854,7 +854,7 @@ struct option long_options[] = {
     {"exec-all",        no_argument,        NULL, 'x'},
     {"print-regs",      no_argument,        NULL, 'r'},
     {"single-exec",     no_argument,        NULL, 'i'},
-    {"filter",          no_argument,        NULL, 'f'},
+    {"filter",          required_argument,  NULL, 'f'},
     {"mask",            required_argument,  NULL, 'm'},
     {"thumb",           no_argument,        NULL, 't'},
     {"random",          no_argument,        NULL, 'z'},
@@ -885,9 +885,13 @@ Execution options:\n\
         -n, --no-exec           Calculate the total amount of undefined instructions,\n\
                                 without executing them.\n\
         -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
-        -f, --filter            Filter away (skip) certain instructions that might generate\n\
-                                false positives.\n\
-                                (Mainly instructions with incorrect SBO/SBZ bits.)\n\
+        -f, --filter <level>    Filter away (skip) certain instructions that would otherwise be\n\
+                                executed and might generate false positives.\n\
+                                Supports the following levels, where each level includes the\n\
+                                numerically lower ones:\n\
+                                    1) Incorrect disassemblies, mostly caused by SBO/SBZ bits.\n\
+                                    2) Incorrect udf bkpt hooks in Linux.\n\
+                                    3) Incorrect setend & udf uprobes hooks in Linux.\n\
         -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
                                 This will generally make execution slower, but lowers the\n\
                                 chance of the fuzzer crashing in case hidden instructions\n\
@@ -928,7 +932,7 @@ int main(int argc, char **argv)
     bool exec_all = false;
     bool print_regs = false;
     bool single_insn = false;
-    bool do_filter = false;
+    uint32_t filter_level = 0;
     bool thumb = false;
     bool random_regs = false;
     bool only_reg_changes = false;
@@ -940,7 +944,7 @@ int main(int argc, char **argv)
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrifm:tzgVC", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif:m:tzgVC", long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -1007,7 +1011,18 @@ int main(int argc, char **argv)
                 single_insn = true;
                 break;
             case 'f':
-                do_filter = true;
+                opt_temp = strtoull(optarg, &endptr, 10);
+
+                if (*endptr != '\0') {
+                    fprintf(stderr, "ERROR: Unable to read filter level\n");
+                    return 1;
+                } else if (opt_temp < 1 || opt_temp > 3) {
+                    fprintf(stderr, "ERROR: Filter level must be 1, 2 or 3.\n");
+                    return 1;
+                } else {
+                    filter_level = (uint32_t)opt_temp;
+                }
+
                 break;
             case 'm':
                 opt_temp = strtoull(optarg, &endptr, 16);
@@ -1257,7 +1272,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (do_filter && filter_instruction(curr_status.insn, thumb) && !exec_all) {
+        if (filter_instruction(curr_status.insn, thumb, filter_level) && !exec_all) {
             ++curr_status.instructions_filtered;
             continue;
         }

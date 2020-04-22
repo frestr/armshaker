@@ -989,10 +989,39 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
          */
         return ((insn & 0x0000ffff) == 0x0000de01);
     }
-    return (   (insn & 0x0fffffff) == 0x07f001f0    // udf #16 = bkpt
-            || (insn & 0x0fffffff) == 0x07f001f9    // udf #25 = uprobe entry
-            || (insn & 0x0fffffff) == 0x07f001fa);  // udf #26 = uprobe return
+    return (insn & 0x0fffffff) == 0x07f001f0;   // udf #16 = bkpt
 #endif
+}
+
+/*
+ * Similarly to the incorrect bkpt hook, Linux also hooks
+ * on 'udf #25' and 'udf #26' -- which are used as uprobe entry
+ * and return instructions -- regardless of the conditional prefix.
+ *
+ * Another bug in the same code is that the thumb bit is NOT checked,
+ * so the hooks also applies to thumb32, where the encoding with
+ * the f-prefix by pure coincidence is undefined, and thus used
+ * by Linux as uprobe instructions.
+ *
+ * We therefore DON'T check for thumb in this function.
+ */
+static bool is_undef_uprobes(uint32_t insn)
+{
+    return ((insn & 0x0fffffff) == 0x07f001f9   // udf #25 = uprobe entry
+        || (insn & 0x0fffffff) == 0x07f001fa);  // udf #26 = uprobe return
+}
+
+/*
+ * Linux incorrectly emulates certain undefined instructions
+ * in thumb32 as setend instructions.
+ *
+ * See https://lkml.org/lkml/2020/4/8/274
+ */
+static bool is_incorrect_setendian(uint32_t insn, bool thumb)
+{
+    return (thumb
+        && is_thumb32(insn)
+        && (insn & 0x0000fff7) == 0x0000b650);
 }
 
 /*
@@ -1005,26 +1034,46 @@ static bool is_unpred_thumb_bcc(uint32_t insn)
             || (insn & 0xfbc0d000) == 0xf3808000);
 }
 
-bool filter_instruction(uint32_t insn, bool thumb)
+bool filter_instruction(uint32_t insn, bool thumb, uint32_t filter_level)
 {
-    if (is_unpredictable_ldpsw(insn))
-        return true;
+    if (filter_level == 0)
+        return false;
 
-    if (is_undef_breakpoint(insn, thumb))
-        return true;
+    bool disas_filter_result = false;
+    bool linux_bkpt_filter_result = false;
+    bool linux_rest_filter_result = false;
+
+    disas_filter_result = is_unpredictable_ldpsw(insn);
 
     if (thumb) {
         if (is_thumb32(insn)) {
-            return (has_incorrect_sb_bits(insn, coproc_opcodes, false)
+            disas_filter_result = disas_filter_result
+                    || has_incorrect_sb_bits(insn, coproc_opcodes, false)
                     || has_incorrect_sb_bits(insn, thumb32_opcodes, false)
                     || is_unpredictable_crc32(insn)
-                    || is_unpred_thumb_bcc(insn));
+                    || is_unpred_thumb_bcc(insn);
         } else {
-            return has_incorrect_sb_bits(insn, thumb16_opcodes, true);
+            disas_filter_result = disas_filter_result
+                    || has_incorrect_sb_bits(insn, thumb16_opcodes, true);
         }
     } else {
-            return (has_incorrect_sb_bits(insn, coproc_opcodes, false)
-                    || has_incorrect_sb_bits(insn, base_opcodes, false));
+        disas_filter_result = disas_filter_result
+                || has_incorrect_sb_bits(insn, coproc_opcodes, false)
+                || has_incorrect_sb_bits(insn, base_opcodes, false);
     }
-    return false;
+
+    linux_bkpt_filter_result = is_undef_breakpoint(insn, thumb);
+
+    linux_rest_filter_result = is_undef_uprobes(insn)
+                                || is_incorrect_setendian(insn, thumb);
+
+    switch (filter_level) {
+        case 1: return disas_filter_result;
+        case 2: return disas_filter_result
+                        || linux_bkpt_filter_result;
+        case 3: return disas_filter_result
+                        || linux_bkpt_filter_result
+                        || linux_rest_filter_result;
+        default: return true;
+    }
 }
