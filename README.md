@@ -23,7 +23,7 @@ Then an exhaustive search of the instruction set the fuzzer was compiled with ca
 
 Which will look something like this:
 
-![frontend](refs/frontend.gif)
+<img src="refs/frontend.gif" alt="drawing" width="500"/>
 
 If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,<register_values_before-after>...`.
 
