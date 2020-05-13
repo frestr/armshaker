@@ -27,7 +27,7 @@ In case Python 3 is not available, `shell_frontend.sh` can be used instead for m
 
 ## Building
 
-armshaker is only supported on Armv8-A-based systems running Linux, but otherwise requires only a C compiler and Python for the front-end.
+armshaker is only supported on Armv8-A-based systems running Linux, but otherwise requires only a C compiler and Python 3 for the front-end.
 
 The simplest way to compile the fuzzer is to run
 
@@ -82,7 +82,6 @@ optional arguments:
 The back-end has some extra options that can be useful for analysis or targeted fuzzing. Its options are as follows.
 
 ```
-The options available in the back-end is as follows.
 $ ./fuzzer -h
 Usage: ./fuzzer [option(s)]
 
