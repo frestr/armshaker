@@ -88,7 +88,8 @@ int custom_ptrace_getregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_setregs(pid_t, struct USER_REGS_TYPE*);
 int custom_ptrace_getvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
 int custom_ptrace_setvfpregs(pid_t, struct USER_VFPREGS_TYPE*);
-void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, bool, bool, execution_result*);
+void execute_insn_slave(pid_t*, uint8_t*, size_t, bool, bool, bool, bool,
+                        execution_result*);
 bool is_thumb32(uint32_t);
 uint64_t get_next_instruction(uint64_t, uint64_t, bool);
 void print_help(char*);
@@ -322,7 +323,8 @@ int init_insn_page(void)
     return 0;
 }
 
-void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, bool set_cond, execution_result *exec_result)
+void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, bool set_cond,
+                       execution_result *exec_result)
 {
     // Jumps to the instruction buffer
     void (*exec_page)() = (void(*)()) insn_page;
@@ -447,7 +449,8 @@ int disas_sprintf(void *stream, const char *fmt, ...) {
  *
  * Return the buffer length
  */
-size_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn, bool thumb)
+size_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn,
+                        bool thumb)
 {
     if (buf_size < 4)
         return 0;
@@ -471,7 +474,9 @@ size_t fill_insn_buffer(uint8_t *buf, size_t buf_size, uint32_t insn, bool thumb
     return 4;
 }
 
-int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disas_str_size) {
+int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str,
+                           size_t disas_str_size)
+{
     stream_state ss = {};
 
     // Set up the disassembler
@@ -488,7 +493,8 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
 
     disasm_info.read_memory_func = buffer_read_memory;
     uint8_t insn_bytes[4];
-    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes), insn, thumb);
+    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes),
+                                         insn, thumb);
     disasm_info.buffer = insn_bytes;
     disasm_info.buffer_length = buf_length;
     disasm_info.buffer_vma = 0;
@@ -525,12 +531,15 @@ int libopcodes_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t di
 }
 
 #ifdef USE_CAPSTONE
-int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str, size_t disas_str_size, csh *handle)
+int capstone_disassemble(uint32_t insn, bool thumb, char *disas_str,
+                         size_t disas_str_size, csh *handle)
 {
     cs_insn *capstone_insn;
     uint8_t insn_bytes[4];
-    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes), insn, thumb);
-    size_t capstone_count = cs_disasm(*handle, insn_bytes, buf_length, 0, 0, &capstone_insn);
+    size_t buf_length = fill_insn_buffer(insn_bytes, sizeof(insn_bytes),
+                                         insn, thumb);
+    size_t capstone_count = cs_disasm(*handle, insn_bytes, buf_length,
+                                      0, 0, &capstone_insn);
     if (capstone_count > 0) {
         snprintf(disas_str,
                  disas_str_size,
@@ -551,8 +560,8 @@ void slave_loop(void)
             "   brk #0  \n"
 #else
             /*
-             * UDF #16 is the same as bkpt in Linux, but without filling up the syslog
-             * (https://www.jwhitham.org//2015/04/the-mystery-of-fifteen-millisecond.html)
+             * UDF #16 is the same as bkpt in Linux, but without filling up
+             * the syslog.
              */
             "   udf #16 \n"
 #endif
@@ -638,7 +647,10 @@ int custom_ptrace_setvfpregs(pid_t pid, struct USER_VFPREGS_TYPE *regs)
 }
 
 
-void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_length, bool thumb, bool random_regs, bool vector_regs, bool set_cond, execution_result *result)
+void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes,
+                        size_t insn_length, bool thumb, bool random_regs,
+                        bool vector_regs, bool set_cond,
+                        execution_result *result)
 {
     int status;
 
@@ -692,12 +704,13 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
 
 #ifdef __aarch64__
     /*
-     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytes in AArch64.
-     * Since every instruction is 4 bytes, this will result in the instruction
-     * after being overwritten. We therefore need to combine the two into a
-     * single word before writing.
+     * PTRACE_POKETEXT can only write a word at a time, which is 8 bytes in
+     * AArch64. Since every instruction is 4 bytes, this will result in the
+     * instruction after being overwritten. We therefore need to combine the
+     * two into a single word before writing.
      */
-    uint32_t next_insn = (uint32_t)ptrace(PTRACE_PEEKTEXT, slave_pid, insn_loc+4, 0);
+    uint32_t next_insn = (uint32_t)ptrace(PTRACE_PEEKTEXT, slave_pid,
+                                          insn_loc+4, 0);
     uint64_t insn_word = insn | ((uint64_t)next_insn << 32);
 #else
     uint32_t insn_word = insn;
@@ -743,7 +756,8 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes, size_t insn_l
             uint64_t rand_val = ((uint64_t)rand() << 32) | rand();
 #ifdef __aarch64__
             uint64_t rand_val2 = ((uint64_t)rand() << 32) | rand();
-            vfp_regs.vregs[i] = random_regs ? ((__uint128_t)rand_val2 << 64) | rand_val : 0;
+            vfp_regs.vregs[i] = random_regs ? 
+                                ((__uint128_t)rand_val2 << 64) | rand_val : 0;
 #else
             vfp_regs.fpregs[i] = random_regs ? rand_val : 0;
 #endif
@@ -944,7 +958,8 @@ int main(int argc, char **argv)
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif:m:tzgVC", long_options, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif:m:tzgVC",
+                            long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
                 print_help(argv[0]);
@@ -953,11 +968,12 @@ int main(int argc, char **argv)
                 opt_temp = strtoull(optarg, &endptr, 16);
 
                 if (*endptr != '\0') {
-                    fprintf(stderr, "error: unable to read instruction range start\n");
+                    fprintf(stderr, "error: unable to read instruction range "
+                                    "start\n");
                     return 1;
                 } else if (opt_temp > INSN_RANGE_MAX) {
-                    fprintf(stderr, "error: instruction range start is outside of "
-                                    "allowed range (0x%08x-0x%08x).\n",
+                    fprintf(stderr, "error: instruction range start is outside"
+                                    " allowed range (0x%08x-0x%08x).\n",
                                     INSN_RANGE_MIN, INSN_RANGE_MAX);
                     return 1;
                 } else {
@@ -968,10 +984,11 @@ int main(int argc, char **argv)
                 opt_temp = strtoull(optarg, &endptr, 16);
 
                 if (*endptr != '\0') {
-                    fprintf(stderr, "ERROR: Unable to read instruction range start\n");
+                    fprintf(stderr, "ERROR: Unable to read instruction range "
+                                    "start\n");
                     return 1;
                 } else if (opt_temp > INSN_RANGE_MAX) {
-                    fprintf(stderr, "ERROR: Instruction range end is outside of "
+                    fprintf(stderr, "ERROR: Instruction range end is outside "
                                     "allowed range (0x%08x-0x%08x).\n",
                                     INSN_RANGE_MIN, INSN_RANGE_MAX);
                     return 1;
@@ -988,7 +1005,8 @@ int main(int argc, char **argv)
                     return 1;
                 }
                 if (asprintf(&file_suffix, "%s", optarg) == -1) {
-                    fprintf(stderr, "ERROR: asprintf with file_suffix failed\n");
+                    fprintf(stderr, "ERROR: asprintf with file_suffix "
+                                    "failed\n");
                     return 1;
                 }
                 break;
@@ -1017,7 +1035,7 @@ int main(int argc, char **argv)
                     fprintf(stderr, "ERROR: Unable to read filter level\n");
                     return 1;
                 } else if (opt_temp < 1 || opt_temp > 3) {
-                    fprintf(stderr, "ERROR: Filter level must be 1, 2 or 3.\n");
+                    fprintf(stderr, "ERROR: Filter level must be 1-3.\n");
                     return 1;
                 } else {
                     filter_level = (uint32_t)opt_temp;
@@ -1028,7 +1046,8 @@ int main(int argc, char **argv)
                 opt_temp = strtoull(optarg, &endptr, 16);
 
                 if (*endptr != '\0') {
-                    fprintf(stderr, "ERROR: Unable to read instruction mask\n");
+                    fprintf(stderr, "ERROR: Unable to read instruction "
+                                    "mask\n");
                     return 1;
                 } else if (opt_temp > INSN_RANGE_MAX) {
                     fprintf(stderr, "ERROR: Instruction mask is outside of "
@@ -1048,7 +1067,8 @@ int main(int argc, char **argv)
                 break;
             case 't':
 #ifdef __aarch64__
-                fprintf(stderr, "Thumb execution is only available on AArch32.\n");
+                fprintf(stderr, "Thumb execution is only available on "
+                                "AArch32.\n");
                 return 1;
 #else
                 thumb = true;
@@ -1084,13 +1104,15 @@ int main(int argc, char **argv)
          * as the thumb(2) instruction space is an order of magnitude smaller
          * than A32.
          */
-        fprintf(stderr, "Thumb execution requires ptrace. Run with -p option.\n");
+        fprintf(stderr, "Thumb execution requires ptrace. "
+                        "Run with -p option.\n");
         return 1;
     }
 
-    if ((print_regs || random_regs || only_reg_changes || include_vector_regs) && !use_ptrace) {
-        fprintf(stderr, "One or more of the supplied options require ptrace execution. "
-                        "Run with -p option.\n");
+    if ((print_regs || random_regs || only_reg_changes || include_vector_regs)
+            && !use_ptrace) {
+        fprintf(stderr, "One or more of the supplied options require ptrace "
+                        "execution. Run with -p option.\n");
         return 1;
     }
 
@@ -1102,13 +1124,15 @@ int main(int argc, char **argv)
         slave_pid = spawn_slave(thumb);
 
     char *log_path;
-    if (asprintf(&log_path, "%s%s", "data/log", file_suffix == NULL ? "" : file_suffix) == -1) {
+    if (asprintf(&log_path, "%s%s", "data/log",
+                 file_suffix == NULL ? "" : file_suffix) == -1) {
         fprintf(stderr, "ERROR: asprintf with log_path failed\n");
         return 1;
     }
 
     char *statusfile_path;
-    if (asprintf(&statusfile_path, "%s%s", "data/status", file_suffix == NULL ? "" : file_suffix) == -1) {
+    if (asprintf(&statusfile_path, "%s%s", "data/status",
+                 file_suffix == NULL ? "" : file_suffix) == -1) {
         fprintf(stderr, "ERROR: asprintf with statusfile_path failed\n");
         return 1;
     }
@@ -1117,7 +1141,8 @@ int main(int argc, char **argv)
         free(file_suffix);
 
     if (insn_range_end < insn_range_start) {
-        fprintf(stderr, "ERROR: Instruction range start > instruction range end\n");
+        fprintf(stderr, "ERROR: Instruction range start > instruction range "
+                        "end\n");
         return 1;
     }
 
@@ -1126,8 +1151,8 @@ int main(int argc, char **argv)
 	csh cs_handle;
 
 	if (cs_open(CAPSTONE_ARCH,
-                CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN + (thumb ? CS_MODE_THUMB : 0),
-                &cs_handle) != CS_ERR_OK) {
+            CS_MODE_ARM + CS_MODE_LITTLE_ENDIAN + (thumb ? CS_MODE_THUMB : 0),
+            &cs_handle) != CS_ERR_OK) {
         fprintf(stderr, "ERROR: Unable to load capstone\n");
 		return 1;
     }
@@ -1195,11 +1220,12 @@ int main(int argc, char **argv)
 
         // Now check what libopcodes thinks
         int libopcodes_ret = libopcodes_disassemble(curr_status.insn,
-                                                    thumb,
-                                                    curr_status.libopcodes_disas,
-                                                    sizeof(curr_status.libopcodes_disas));
+                                        thumb,
+                                        curr_status.libopcodes_disas,
+                                        sizeof(curr_status.libopcodes_disas));
         if (libopcodes_ret == 0) {
-            fprintf(stderr, "libopcodes disassembly failed on insn 0x%08" PRIx32 "\n",
+            fprintf(stderr, "libopcodes disassembly failed on "
+                            "insn 0x%08" PRIx32 "\n",
                     curr_status.insn);
             return 1;
         }
@@ -1209,10 +1235,11 @@ int main(int argc, char **argv)
                                 + curr_status.instructions_filtered);
 
         // Write the current search status to the statusfile now and then
-        if (total_insns % STATUS_UPDATE_RATE == 0 || curr_status.insn == insn_range_end) {
+        if (total_insns % STATUS_UPDATE_RATE == 0
+                || curr_status.insn == insn_range_end) {
             uint64_t curr_timestamp = get_nano_timestamp();
-            curr_status.instructions_per_sec =
-                STATUS_UPDATE_RATE / (double)((curr_timestamp - last_timestamp) / 1e9);
+            curr_status.instructions_per_sec = STATUS_UPDATE_RATE /
+                (double)((curr_timestamp - last_timestamp) / 1e9);
             last_timestamp = curr_timestamp;
 
             if (write_statusfile(statusfile_path, &curr_status) == -1) {
@@ -1223,9 +1250,10 @@ int main(int argc, char **argv)
                 print_statusline(&curr_status);
         }
 
-        bool libopcodes_undefined = (strstr(curr_status.libopcodes_disas, "undefined") != NULL
-                                  || strstr(curr_status.libopcodes_disas, "NYI") != NULL
-                                  || strstr(curr_status.libopcodes_disas, "UNDEFINED") != NULL);
+        bool libopcodes_undefined =
+                (strstr(curr_status.libopcodes_disas, "undefined") != NULL
+              || strstr(curr_status.libopcodes_disas, "NYI") != NULL
+              || strstr(curr_status.libopcodes_disas, "UNDEFINED") != NULL);
 
         /* Only test instructions that both capstone and libopcodes think are
          * undefined, but report inconsistencies, as they might indicate
@@ -1251,9 +1279,9 @@ int main(int argc, char **argv)
 
                         if (log_fp != NULL) {
                             fprintf(log_fp,
-                                    "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
-                                    curr_status.insn, curr_status.cs_disas,
-                                    curr_status.libopcodes_disas);
+                                "%08" PRIx32 ",discrepancy,\"%s\",\"%s\"\n",
+                                curr_status.insn, curr_status.cs_disas,
+                                curr_status.libopcodes_disas);
                             fclose(log_fp);
                         }
                 }
@@ -1272,7 +1300,8 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (filter_instruction(curr_status.insn, thumb, filter_level) && !exec_all) {
+        if (filter_instruction(curr_status.insn, thumb, filter_level)
+                && !exec_all) {
             ++curr_status.instructions_filtered;
             continue;
         }
@@ -1299,8 +1328,8 @@ int main(int argc, char **argv)
             if (random_regs) {
                 /*
                  * Reseed with the same seed to keep the values from changing
-                 * between iterations, as changing values makes comparing side-effects
-                 * across instructions a lot harder.
+                 * between iterations, as changing values makes comparing
+                 * side-effects across instructions a lot harder.
                  */
                 srand(start_time);
             }
@@ -1333,7 +1362,7 @@ int main(int argc, char **argv)
         ++curr_status.instructions_checked;
     }
 
-    // Print the statusline one last time to capture the result of the last insn
+    // Print statusline one last time to capture the result of the last insn
     print_statusline(&curr_status);
     write_statusfile(statusfile_path, &curr_status);
 
