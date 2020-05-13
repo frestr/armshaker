@@ -907,9 +907,9 @@ Execution options:\n\
                             each level includes the numerically lower ones:\n\
                                 1: Incorrect disassemblies, mostly caused by\n\
                                    SBO/SBZ bits.\n\
-                                2: Incorrect udf bkpt hooks in Linux.\n\
-                                3: Incorrect setend & udf uprobes hooks in\n\
-                                   Linux.\n\
+                                2: Hidden instructions caused by Linux bugs\n\
+                                   (incorrect udf bkpt, udf uprobes and setend\n\
+                                   hooks).\n\
     -p, --ptrace            Execute instructions on a separate process using\n\
                             ptrace. This will generally make execution slower,\n\
                             but lowers the chance of the fuzzer crashing in\n\
@@ -1044,8 +1044,8 @@ int main(int argc, char **argv)
                 if (*endptr != '\0') {
                     fprintf(stderr, "ERROR: Unable to read filter level\n");
                     return 1;
-                } else if (opt_temp < 1 || opt_temp > 3) {
-                    fprintf(stderr, "ERROR: Filter level must be 1-3.\n");
+                } else if (opt_temp < 1 || opt_temp > 2) {
+                    fprintf(stderr, "ERROR: Filter level must be 1 or 2.\n");
                     return 1;
                 } else {
                     filter_level = (uint32_t)opt_temp;

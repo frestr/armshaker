@@ -1070,8 +1070,6 @@ bool filter_instruction(uint32_t insn, bool thumb, uint32_t filter_level)
     switch (filter_level) {
         case 1: return disas_filter_result;
         case 2: return disas_filter_result
-                        || linux_bkpt_filter_result;
-        case 3: return disas_filter_result
                         || linux_bkpt_filter_result
                         || linux_rest_filter_result;
         default: return true;

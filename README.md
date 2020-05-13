@@ -20,7 +20,7 @@ The particular instruction set that is fuzzed depends on the runtime of the curr
 Then an exhaustive search of the respective instruction set can be initiated like so:
 
 ```
-./armshaker.py -f3
+./armshaker.py -f2
 ```
 
 Which will look something like this:
@@ -117,9 +117,9 @@ Execution options:
                             each level includes the numerically lower ones:
                                 1: Incorrect disassemblies, mostly caused by
                                    SBO/SBZ bits.
-                                2: Incorrect udf bkpt hooks in Linux.
-                                3: Incorrect setend & udf uprobes hooks in
-                                   Linux.
+                                2: Hidden instructions caused by Linux bugs
+                                   (incorrect udf bkpt, udf uprobes and setend
+                                   hooks).
     -p, --ptrace            Execute instructions on a separate process using
                             ptrace. This will generally make execution slower,
                             but lowers the chance of the fuzzer crashing in
