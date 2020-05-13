@@ -32,14 +32,12 @@ void print_statusline(search_status *status)
            "skipped: %" PRIu64 ", "
            "filtered: %" PRIu64 ", "
            "hidden: %" PRIu64 ", "
-           "discreps: %" PRIu64 ", "
            "ips: %" PRIu64 "   ",
            status->insn,
            status->instructions_checked,
            status->instructions_skipped,
            status->instructions_filtered,
            status->hidden_instructions_found,
-           status->disas_discrepancies,
            status->instructions_per_sec
         );
 
@@ -116,7 +114,6 @@ int write_statusfile(char *filepath, search_status *status)
             "instructions_skipped:%" PRIu64 "\n"
             "instructions_filtered:%" PRIu64 "\n"
             "hidden_instructions_found:%" PRIu64 "\n"
-            "disas_discrepancies:%" PRIu64 "\n"
             "instructions_per_sec:%" PRIu64 "\n",
             status->insn,
             status->cs_disas,
@@ -125,7 +122,6 @@ int write_statusfile(char *filepath, search_status *status)
             status->instructions_skipped,
             status->instructions_filtered,
             status->hidden_instructions_found,
-            status->disas_discrepancies,
             status->instructions_per_sec
         );
 
