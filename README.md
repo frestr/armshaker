@@ -21,7 +21,11 @@ Then an exhaustive search of the instruction set the fuzzer was compiled with ca
 ./armshaker.py -f3
 ```
 
-The front-end will show the current status of the fuzzing session, with both a summary and the details for each worker. If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,<register_values_before-after>...`.
+Which will look something like this:
+
+![frontend](refs/frontend.gif)
+
+If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,<register_values_before-after>...`.
 
 In case Python 3 is not available, `shell_frontend.sh` can be used instead for multiprocessing support. Otherwise the fuzzer back-end can be run directly with `./fuzzer <options>`.
 
