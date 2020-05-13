@@ -1,5 +1,5 @@
 # armshaker
-armshaker is processor fuzzer targeting the Armv8-A ISA. It can be used to find hidden instructions in hardware processors or other implementations of the ISA like emulators.
+armshaker is a processor fuzzer targeting the Armv8-A ISA. It can be used to find hidden instructions in hardware processors or other implementations of the ISA like emulators.
 
 In essence, it works by executing undefined instructions and checking whether the execution generates an undefined instruction exception or not, in the form of a SIGILL signal sent to the process. If no SIGILL is received, the instruction is marked as hidden and logged. The limited size of the three instruction sets in Armv8-A (A64, A32 and T32) makes it feasible to do an exhaustive search over the whole instruction space using this method.
 
@@ -7,15 +7,17 @@ In essence, it works by executing undefined instructions and checking whether th
 
 armshaker has two primary parts: the back-end doing most of the work, and a front-end adding visualizations and multiprocessing support. In most cases, the front-end is the preferred way to run the fuzzer.
 
-The fuzzer must be compiled the first time, which can usually be done with a simple
+The fuzzer must be compiled before use, which can usually be done with a simple
 
 ```
 make
 ```
 
-The particular instruction set that is fuzzed depends on the runtime of the current system. If the fuzzer is compiled with a 32-bit (AArch32) toolchain, it will be able to fuzz A32 or T32 (with the `-t` option). If it is compiled with a 64-bit toolchain (AArch64), it will be able to fuzz A64, although cross-compiling and running a 32-bit application from AArch64 is possible.
+in the project directory.
 
-Then an exhaustive search of the instruction set the fuzzer was compiled with can be initiated like so:
+The particular instruction set that is fuzzed depends on the runtime of the current system. If the fuzzer is compiled with a 32-bit (AArch32) toolchain, it will be able to fuzz A32 or T32 (with the `-t` option). If it is compiled with a 64-bit toolchain (AArch64), it will be able to fuzz A64, although cross-compiling and running a 32-bit fuzzer from AArch64 is possible.
+
+Then an exhaustive search of the respective instruction set can be initiated like so:
 
 ```
 ./armshaker.py -f3
@@ -25,7 +27,7 @@ Which will look something like this:
 
 <img src="refs/frontend.gif" alt="drawing" width="600"/>
 
-If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,<register_values_before-after>...`.
+If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,...`, with register value changes appended if the `-t` (and optionally `-g`) option is set.
 
 In case Python 3 is not available, `shell_frontend.sh` can be used instead for multiprocessing support. Otherwise the fuzzer back-end can be run directly with `./fuzzer <options>`.
 
@@ -153,4 +155,4 @@ Ptrace options (only available with -p option):
 
 ## References
 
-armshaker was inspired by Christopher Domas's [sandsifter](https://github.com/xoreaxeaxeax/sandsifter) project, and implemented as a part of my master's thesis in computer science where I used armshaker to fuzz a variety of Armv8-A-based systems. No hidden instructions that could be attributed to hardware were found, but the fuzzing did reveal bugs in the QEMU emulator and the Linux kernel. See the `refs` directory for more information.
+armshaker was inspired by Christopher Domas's [sandsifter](https://github.com/xoreaxeaxeax/sandsifter) project and implemented as part of my master's thesis in computer science, where I used it to fuzz a variety of Armv8-A-based systems. No hidden instructions that could be attributed to hardware were found, but the fuzzing did reveal bugs in the QEMU emulator and the Linux kernel. See the `refs` directory for more information.
