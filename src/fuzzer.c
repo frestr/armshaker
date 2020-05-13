@@ -882,55 +882,65 @@ void print_help(char *cmd_name)
     printf("Usage: %s [option(s)]\n", cmd_name);
     printf("\n\
 General options:\n\
-        -h, --help              Print help information.\n\
-        -q, --quiet             Don't print the status line.\n\
+    -h, --help              Print help information.\n\
+    -q, --quiet             Don't print the status line.\n\
 \n\
 Search options:\n\
-        -s, --start <insn>      Start of instruction search range (in hex).\n\
-                                [default: 0x00000000]\n\
-        -e, --end <insn>        End of instruction search range, inclusive (in hex).\n\
-                                [default: 0xffffffff]\n\
-        -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
-        -m, --mask <mask>       Only update instruction bits marked in the supplied mask.\n\
-                                Useful for testing different operands on a single instruction.\n\
-                                Example: 0xf0000000 -> only increment most significant nibble\n\
+    -s, --start <insn>      Start of instruction search range (in hex).\n\
+                            [default: 0x00000000]\n\
+    -e, --end <insn>        End of instruction search range, inclusive (in\n\
+                            hex). [default: 0xffffffff]\n\
+    -i, --single-exec       Execute a single instruction (i.e., set end=start).\n\
+    -m, --mask <mask>       Only update instruction bits marked in the supplied\n\
+                            mask. Useful for testing different operands on a\n\
+                            single instruction. Example: 0xf0000000 -> only\n\
+                            increment most significant nibble.\n\
 \n\
 Execution options:\n\
-        -n, --no-exec           Calculate the total amount of undefined instructions,\n\
-                                without executing them.\n\
-        -x, --exec-all          Execute all instructions (regardless of the disassembly result).\n\
-        -f, --filter <level>    Filter away (skip) certain instructions that would otherwise be\n\
-                                executed and might generate false positives.\n\
-                                Supports the following levels, where each level includes the\n\
-                                numerically lower ones:\n\
-                                    1) Incorrect disassemblies, mostly caused by SBO/SBZ bits.\n\
-                                    2) Incorrect udf bkpt hooks in Linux.\n\
-                                    3) Incorrect setend & udf uprobes hooks in Linux.\n\
-        -p, --ptrace            Execute instructions on a separate process using ptrace.\n\
-                                This will generally make execution slower, but lowers the\n\
-                                chance of the fuzzer crashing in case hidden instructions\n\
-                                with certain side-effects are found. It also enables\n\
-                                logging register content changes on hidden instructions.\n\
-        -C, --cond              On AArch32: Set the condition flags in the CPSR to match the\n\
-                                condition prefix in the instruction encoding. This ensures\n\
-                                that undefined instructions with a normally non-matching\n\
-                                condition prefix won't be skipped, as is the case for some\n\
-                                ISA implementations.\n\
+    -n, --no-exec           Calculate the total amount of undefined\n\
+                            instructions, without executing them.\n\
+    -x, --exec-all          Execute all instructions (regardless of the\n\
+                            disassembly result).\n\
+    -f, --filter <level>    Filter away (skip) certain instructions that would\n\
+                            otherwise be executed and might generate false\n\
+                            positives. Supports the following levels, where\n\
+                            each level includes the numerically lower ones:\n\
+                                1: Incorrect disassemblies, mostly caused by\n\
+                                   SBO/SBZ bits.\n\
+                                2: Incorrect udf bkpt hooks in Linux.\n\
+                                3: Incorrect setend & udf uprobes hooks in\n\
+                                   Linux.\n\
+    -p, --ptrace            Execute instructions on a separate process using\n\
+                            ptrace. This will generally make execution slower,\n\
+                            but lowers the chance of the fuzzer crashing in\n\
+                            case hidden instructions with certain side-effects\n\
+                            are found. It also enables some additional options.\n\
+    -C, --cond              On AArch32: Set the condition flags in the CPSR to\n\
+                            match the condition prefix in the instruction\n\
+                            encoding. This ensures that undefined instructions\n\
+                            with a normally non-matching condition prefix won't\n\
+                            be skipped, as is the case in some ISA\n\
+                            implementations.\n\
 \n\
 Logging options:\n\
-        -l, --log-suffix        Add a suffix to the log and status file.\n\
-        -c, --discreps          Log disassembler discrepancies.\n\
+    -l, --log-suffix        Add a suffix to the log and status file.\n\
+    -c, --discreps          Log disassembler discrepancies.\n\
 \n\
 Ptrace options (only available with -p option):\n\
-        -t, --thumb             Use the thumb instruction set (only available on AArch32).\n\
-                                (Note: 16-bit thumb instructions have the format XXXX0000.\n\
-                                So to test e.g. instruction 46c0, use 46c00000.)\n\
-        -r, --print-regs        Print register values before/after instruction execution.\n\
-        -z, --random            Load the registers with random values, instead of all 0s.\n\
-                                Note that the random values are generated at startup, and\n\
-                                remains constant throughout the session.\n\
-        -g, --log-reg-changes   For hidden instructions, only log registers that changed value.\n\
-        -V, --vector            Set and log vector registers (d0-d31, fpscr) when fuzzing.\n"
+    -t, --thumb             Use the thumb instruction set (only available on\n\
+                            AArch32). Note: 16-bit thumb instructions have the\n\
+                            format XXXX0000. So to test e.g. instruction 46c0,\n\
+                            use 46c00000.\n\
+    -r, --print-regs        Print register values before/after instruction\n\
+                            execution.\n\
+    -z, --random            Load the registers with random values, instead of\n\
+                            all 0s. Note that the random values are generated\n\
+                            at startup, and remain constant throughout the\n\
+                            session.\n\
+    -g, --log-reg-changes   For hidden instructions, only log registers that\n\
+                            changed value.\n\
+    -V, --vector            Set and log vector registers (d0-d31, fpscr) when\n\
+                            fuzzing.\n"
     );
 }
 
