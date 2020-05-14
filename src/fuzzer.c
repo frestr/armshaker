@@ -905,11 +905,11 @@ Execution options:\n\
                             otherwise be executed and might generate false\n\
                             positives. Supports the following levels, where\n\
                             each level includes the numerically lower ones:\n\
-                                1: Incorrect disassemblies, mostly caused by\n\
-                                   SBO/SBZ bits.\n\
-                                2: Hidden instructions caused by Linux bugs\n\
-                                   (incorrect udf bkpt, udf uprobes and setend\n\
-                                   hooks).\n\
+                                1: Inaccurate disassemblies, primarily caused\n\
+                                   by SBO/SBZ bits.\n\
+                                2: Hidden instructions induced by Linux\n\
+                                   as a result of bugs or backwards\n\
+                                   compatibility measures.\n\
     -p, --ptrace            Execute instructions on a separate process using\n\
                             ptrace. This will generally make execution slower,\n\
                             but lowers the chance of the fuzzer crashing in\n\

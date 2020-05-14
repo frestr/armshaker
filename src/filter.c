@@ -897,7 +897,7 @@ static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes, b
 /*
  * Mostly taken from binutils/opcodes/aarch64-opc.c
  * In essence, this checks whether the ldpsw verifier in libopcodes
- * would (incorrectly) mark the instruction as undefined or not.
+ * would (inaccurately) mark the instruction as undefined or not.
  */
 static bool is_unpredictable_ldpsw(uint32_t insn)
 {
@@ -956,18 +956,23 @@ static bool is_unpred_thumb_crc32(uint32_t insn)
 /*
  * Linux traps certain udf instructions, primarily to be used as
  * breakpoints. Namey, 'udf #16' works as a bkpt substitute, while
- * 'udf #25' and '#udf 26' work as uprobe entry and return, respectively.
+ * 'udf #25' and '#udf 26' work as uprobe break and single-step,
+ * respectively.
  *
  * However, Linux traps these instructions regardless of the condition
- * prefix, which according to Arm ARM should be e (always); any other
+ * prefix, which according to Arm(v8) ARM should be e (always); any other
  * prefix is unallocated. This makes the disassemblers not recognize the
  * udf's with an incorrect prefix, which in turn makes the fuzzer
  * mark them as hidden because of the differing signal.
  *
- * Since this (apparently) is intended behavior by the kernel, filter
- * out those instructions, as these instructions aren't "hidden" nor
- * the result of a bug -- even though it can kind of be considered as
- * a bug in the kernel.
+ * Conditional UDFs (or rather, a permanently undefined space with arbitrary
+ * conditions) were supported in Armv6 and earlier, and is therefore still
+ * supported in the kernel as a backwards-compatibility measure. Even though
+ * the particular encodings are unallocated, they still belong to the
+ * permanently undefined instruction class, so trapping them poses no risk.
+ *
+ * We therefore filter out these instructions, as they are the result of
+ * an intentional backwards-compatibility measure and not really "hidden".
  */
 static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 {
@@ -994,12 +999,12 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 }
 
 /*
- * Similarly to the incorrect bkpt hook, Linux also hooks
+ * Similarly to the "incorrect" bkpt hook, Linux also hooks
  * on 'udf #25' and 'udf #26' -- which are used as uprobe entry
  * and return instructions -- regardless of the conditional prefix.
  *
- * Another bug in the same code is that the thumb bit is NOT checked,
- * so the hooks also applies to thumb32, where the encoding with
+ * An apparent bug in the same code is that the thumb bit is NOT checked,
+ * so the hooks also apply to thumb32, where the encoding with
  * the f-prefix by pure coincidence is undefined, and thus used
  * by Linux as uprobe instructions.
  *

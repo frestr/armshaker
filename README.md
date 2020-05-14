@@ -115,11 +115,11 @@ Execution options:
                             otherwise be executed and might generate false
                             positives. Supports the following levels, where
                             each level includes the numerically lower ones:
-                                1: Incorrect disassemblies, mostly caused by
-                                   SBO/SBZ bits.
-                                2: Hidden instructions caused by Linux bugs
-                                   (incorrect udf bkpt, udf uprobes and setend
-                                   hooks).
+                                1: Inaccurate disassemblies, primarily caused
+                                   by SBO/SBZ bits.
+                                2: Hidden instructions induced by Linux
+                                   as a result of bugs or backwards
+                                   compatibility measures.
     -p, --ptrace            Execute instructions on a separate process using
                             ptrace. This will generally make execution slower,
                             but lowers the chance of the fuzzer crashing in
