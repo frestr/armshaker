@@ -945,7 +945,7 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
  * Side note: for A32, libopcodes actually incorrectly disassembles
  * the crc32 insn as a cmn insn in this case.
  */
-static bool is_unpredictable_crc32(uint32_t insn)
+static bool is_unpred_thumb_crc32(uint32_t insn)
 {
     bool is_crc32 = ((insn & 0xfff0f0c0) == 0xfac0f080);
     bool is_crc32c = ((insn & 0xfff0f0c0) == 0xfad0f080);
@@ -1050,7 +1050,7 @@ bool filter_instruction(uint32_t insn, bool thumb, uint32_t filter_level)
             disas_filter_result = disas_filter_result
                     || has_incorrect_sb_bits(insn, coproc_opcodes, false)
                     || has_incorrect_sb_bits(insn, thumb32_opcodes, false)
-                    || is_unpredictable_crc32(insn)
+                    || is_unpred_thumb_crc32(insn)
                     || is_unpred_thumb_bcc(insn);
         } else {
             disas_filter_result = disas_filter_result
