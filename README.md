@@ -27,7 +27,7 @@ Which will look something like this:
 
 The particular instruction set that is fuzzed depends on the runtime of the current system. If the fuzzer is compiled with a 32-bit (AArch32) toolchain, it will be able to fuzz A32 or T32 (with the `-t` option). If it is compiled with a 64-bit toolchain (AArch64), it will be able to fuzz A64, although cross-compiling and running a 32-bit fuzzer from AArch64 is possible.
 
-If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,...`, with register value changes appended if the `-t` (and optionally `-g`) option is set.
+If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,...`, with register value changes appended if the `-p` (and optionally `-g`) option is set.
 
 In case Python 3 is not available, `shell_frontend.sh` can be used instead for multiprocessing support. Otherwise the fuzzer back-end can be run directly with `./fuzzer <options>`.
 
