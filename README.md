@@ -15,9 +15,7 @@ make
 
 in the project directory.
 
-The particular instruction set that is fuzzed depends on the runtime of the current system. If the fuzzer is compiled with a 32-bit (AArch32) toolchain, it will be able to fuzz A32 or T32 (with the `-t` option). If it is compiled with a 64-bit toolchain (AArch64), it will be able to fuzz A64, although cross-compiling and running a 32-bit fuzzer from AArch64 is possible.
-
-Then an exhaustive search of the respective instruction set can be initiated like so:
+Then an exhaustive search of the default instruction set can be initiated like so:
 
 ```
 ./armshaker.py -f2
@@ -26,6 +24,8 @@ Then an exhaustive search of the respective instruction set can be initiated lik
 Which will look something like this:
 
 <img src="refs/frontend.gif" alt="drawing" width="600"/>
+
+The particular instruction set that is fuzzed depends on the runtime of the current system. If the fuzzer is compiled with a 32-bit (AArch32) toolchain, it will be able to fuzz A32 or T32 (with the `-t` option). If it is compiled with a 64-bit toolchain (AArch64), it will be able to fuzz A64, although cross-compiling and running a 32-bit fuzzer from AArch64 is possible.
 
 If a hidden instruction is found, it will be logged in the file `data/logX`, where `X` corresponds to the worker ID. Each log entry will be in the following format: `<instruction_encoding>,hidden,<generated_signal_number>,...`, with register value changes appended if the `-t` (and optionally `-g`) option is set.
 
