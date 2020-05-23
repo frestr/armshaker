@@ -57,7 +57,7 @@ void print_execution_result(execution_result *result, bool include_vector_regs)
            "pstate: %016llx\t%016llx\n",
            result->regs_before.sp, result->regs_after.sp,
            result->regs_before.pc, result->regs_after.pc,
-           result->regs_before.pstate, result->regs_before.pstate);
+           result->regs_before.pstate, result->regs_after.pstate);
 
     if (include_vector_regs) {
         for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
