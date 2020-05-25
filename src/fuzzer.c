@@ -276,7 +276,7 @@ void execution_boilerplate(void)
             "mov sp, %[reg_init]        \n"
 
             // Note: this msr insn must be directly above the nop
-            // because of the -C option (excluding the label ofc)
+            // because of the -c option (excluding the label ofc)
             "msr cpsr_f, #0             \n"
 
             ".global insn_location      \n"
@@ -874,7 +874,7 @@ struct option long_options[] = {
     {"random",          no_argument,        NULL, 'z'},
     {"log-reg-changes", no_argument,        NULL, 'g'},
     {"vector",          no_argument,        NULL, 'V'},
-    {"cond",            no_argument,        NULL, 'C'}
+    {"cond",            no_argument,        NULL, 'c'}
 };
 
 void print_help(char *cmd_name)
@@ -915,7 +915,7 @@ Execution options:\n\
                             but lowers the chance of the fuzzer crashing in\n\
                             case hidden instructions with certain side-effects\n\
                             are found. It also enables some additional options.\n\
-    -C, --cond              On AArch32: Set the condition flags in the CPSR to\n\
+    -c, --cond              On AArch32: Set the condition flags in the CPSR to\n\
                             match the condition prefix in the instruction\n\
                             encoding. This ensures that undefined instructions\n\
                             with a normally non-matching condition prefix won't\n\
@@ -968,7 +968,7 @@ int main(int argc, char **argv)
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qdpxrif:m:tzgVC",
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qdpxrif:m:tzgVc",
                             long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
@@ -1093,9 +1093,9 @@ int main(int argc, char **argv)
             case 'V':
                 include_vector_regs = true;
                 break;
-            case 'C':
+            case 'c':
 #ifdef __aarch64__
-                fprintf(stderr, "-C option is only available on AArch32.\n");
+                fprintf(stderr, "-c option is only available on AArch32.\n");
                 return 1;
 #else
                 set_cond = true;

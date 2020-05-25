@@ -195,7 +195,7 @@ def start_procs(search_range, args):
                '-z' if args.random else '',
                '-g' if args.log_reg_changes else '',
                '-V' if args.vector else '',
-               '-C' if args.cond else '',
+               '-c' if args.cond else '',
                '-q']
 
         try:
@@ -346,7 +346,7 @@ if __name__ == '__main__':
     parser.add_argument('-V', '--vector',
                         action='store_true',
                         help='Set and log vector registers (d0-d31, fpscr) when fuzzing.')
-    parser.add_argument('-C', '--cond',
+    parser.add_argument('-c', '--cond',
                         action='store_true',
                         help='Set cpsr flags to match instruction condition prefix.')
 

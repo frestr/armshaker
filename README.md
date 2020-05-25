@@ -58,7 +58,7 @@ The options available in the front-end are as follows. For more detailed descrip
 ```
 $ ./armshaker.py -h
 usage: armshaker.py [-h] [-s INSN] [-e INSN] [-c] [-w NUM] [-p] [-n]
-                    [-f LEVEL] [-t] [-z] [-g] [-V] [-C]
+                    [-f LEVEL] [-t] [-z] [-g] [-V] [-c]
 
 fuzzer front-end
 
@@ -82,7 +82,7 @@ optional arguments:
                         changed value.
   -V, --vector          Set and log vector registers (d0-d31, fpscr) when
                         fuzzing.
-  -C, --cond            Set cpsr flags to match instruction condition prefix.
+  -c, --cond            Set cpsr flags to match instruction condition prefix.
 ```
 
 The back-end has some extra options that can be useful for analysis or targeted fuzzing. Its options are as follows.
@@ -125,7 +125,7 @@ Execution options:
                             but lowers the chance of the fuzzer crashing in
                             case hidden instructions with certain side-effects
                             are found. It also enables some additional options.
-    -C, --cond              On AArch32: Set the condition flags in the CPSR to
+    -c, --cond              On AArch32: Set the condition flags in the CPSR to
                             match the condition prefix in the instruction
                             encoding. This ensures that undefined instructions
                             with a normally non-matching condition prefix won't
