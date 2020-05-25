@@ -348,7 +348,7 @@ if __name__ == '__main__':
                         help='Set and log vector registers (d0-d31, fpscr) when fuzzing.')
     parser.add_argument('-c', '--cond',
                         action='store_true',
-                        help='Set cpsr flags to match instruction condition prefix.')
+                        help='Set cpsr flags to match instruction condition code.')
 
     args = parser.parse_args()
     quit_str = curses.wrapper(main, args)

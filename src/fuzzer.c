@@ -73,7 +73,7 @@ void init_signal_handler(void (*handler)(int, siginfo_t*, void*), int);
 void execution_boilerplate(void);
 int init_insn_page(void);
 void execute_insn_page(uint8_t*, size_t, bool, execution_result*);
-uint8_t cond_prefix_to_flags(uint8_t);
+uint8_t cond_code_to_flags(uint8_t);
 uint64_t get_nano_timestamp(void);
 int disas_sprintf(void*, const char*, ...);
 size_t fill_insn_buffer(uint8_t*, size_t, uint32_t, bool);
@@ -330,7 +330,7 @@ void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, bool set_cond,
     void (*exec_page)() = (void(*)()) insn_page;
 
     if (set_cond) {
-        uint8_t flags = cond_prefix_to_flags((insn_bytes[3] >> 4) & 0xf);
+        uint8_t flags = cond_code_to_flags((insn_bytes[3] >> 4) & 0xf);
         /*
          * Reset and update the imm12 field of the msr instruction to include
          * the new flag bits. A bit nasty, but it works^tm. The 0x200 is for
@@ -363,10 +363,10 @@ void execute_insn_page(uint8_t *insn_bytes, size_t insn_length, bool set_cond,
     exec_result->signal = last_insn_signum;
 }
 
-uint8_t cond_prefix_to_flags(uint8_t cond)
+uint8_t cond_code_to_flags(uint8_t cond)
 {
     /*
-     * The cond prefix to flags mapping can be found on p. 3909
+     * The cond code to flags mapping can be found on p. 3909
      * in Arm ARM.
      *
      * Return the flags in the same order as they appear in the
@@ -741,7 +741,7 @@ void execute_insn_slave(pid_t *slave_pid_ptr, uint8_t *insn_bytes,
     if (thumb)
         regs.uregs[A32_cpsr] |= 0x20;   // Thumb execution
     if (set_cond) {
-        uint8_t flags = cond_prefix_to_flags((insn_bytes[3] >> 4) & 0xf);
+        uint8_t flags = cond_code_to_flags((insn_bytes[3] >> 4) & 0xf);
         regs.uregs[A32_cpsr] |= (flags << 28);
     }
 #endif
@@ -916,9 +916,9 @@ Execution options:\n\
                             case hidden instructions with certain side-effects\n\
                             are found. It also enables some additional options.\n\
     -c, --cond              On AArch32: Set the condition flags in the CPSR to\n\
-                            match the condition prefix in the instruction\n\
+                            match the condition code in the instruction\n\
                             encoding. This ensures that undefined instructions\n\
-                            with a normally non-matching condition prefix won't\n\
+                            with a normally non-matching condition code won't\n\
                             be skipped, as is the case in some ISA\n\
                             implementations.\n\
 \n\

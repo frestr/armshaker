@@ -82,7 +82,7 @@ optional arguments:
                         changed value.
   -V, --vector          Set and log vector registers (d0-d31, fpscr) when
                         fuzzing.
-  -c, --cond            Set cpsr flags to match instruction condition prefix.
+  -c, --cond            Set cpsr flags to match instruction condition code.
 ```
 
 The back-end has some extra options that can be useful for analysis or targeted fuzzing. Its options are as follows.
@@ -126,9 +126,9 @@ Execution options:
                             case hidden instructions with certain side-effects
                             are found. It also enables some additional options.
     -c, --cond              On AArch32: Set the condition flags in the CPSR to
-                            match the condition prefix in the instruction
+                            match the condition code in the instruction
                             encoding. This ensures that undefined instructions
-                            with a normally non-matching condition prefix won't
+                            with a normally non-matching condition code won't
                             be skipped, as is the case in some ISA
                             implementations.
 

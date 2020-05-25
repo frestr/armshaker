@@ -960,9 +960,9 @@ static bool is_unpred_thumb_crc32(uint32_t insn)
  * respectively.
  *
  * However, Linux traps these instructions regardless of the condition
- * prefix, which according to Arm(v8) ARM should be e (always); any other
- * prefix is unallocated. This makes the disassemblers not recognize the
- * udf's with an incorrect prefix, which in turn makes the fuzzer
+ * code, which according to Arm(v8) ARM should be e (always); any other
+ * code is unallocated. This makes the disassemblers not recognize the
+ * udf's with an incorrect code, which in turn makes the fuzzer
  * mark them as hidden because of the differing signal.
  *
  * Conditional UDFs (or rather, a permanently undefined space with arbitrary
@@ -1001,7 +1001,7 @@ static bool is_undef_breakpoint(uint32_t insn, bool thumb)
 /*
  * Similarly to the "incorrect" bkpt hook, Linux also hooks
  * on 'udf #25' and 'udf #26' -- which are used as uprobe entry
- * and return instructions -- regardless of the conditional prefix.
+ * and return instructions -- regardless of the condition code.
  *
  * An apparent bug in the same code is that the thumb bit is NOT checked,
  * so the hooks also apply to thumb32, where the encoding with
