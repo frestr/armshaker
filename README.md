@@ -67,7 +67,7 @@ optional arguments:
   -s INSN, --start INSN
                         search range start
   -e INSN, --end INSN   search range end
-  -c, --discreps        Log disassembler discrepancies
+  -d, --discreps        Log disassembler discrepancies
   -w NUM, --workers NUM
                         Number of worker processes
   -p, --ptrace          Use ptrace when testing
@@ -134,7 +134,7 @@ Execution options:
 
 Logging options:
     -l, --log-suffix        Add a suffix to the log and status file.
-    -c, --discreps          Log disassembler discrepancies.
+    -d, --discreps          Log disassembler discrepancies.
 
 Ptrace options (only available with -p option):
     -t, --thumb             Use the thumb instruction set (only available on

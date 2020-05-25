@@ -187,7 +187,7 @@ def start_procs(search_range, args):
                '-l', str(i),
                '-s', hex(insn_start),
                '-e', hex(insn_end),
-               '-c' if args.discreps else '',
+               '-d' if args.discreps else '',
                '-p' if args.ptrace else '',
                '-n' if args.no_exec else '',
                '-f{}'.format(args.filter[0]) if args.filter and args.filter[0] > 0 else '',
@@ -317,7 +317,7 @@ if __name__ == '__main__':
                         type=hex_int, nargs=1,
                         help='search range end',
                         metavar='INSN', default=0xffffffff)
-    parser.add_argument('-c', '--discreps',
+    parser.add_argument('-d', '--discreps',
                         action='store_true',
                         help='Log disassembler discrepancies')
     parser.add_argument('-w', '--workers',

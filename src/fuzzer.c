@@ -863,7 +863,7 @@ struct option long_options[] = {
     {"no-exec",         no_argument,        NULL, 'n'},
     {"log-suffix",      required_argument,  NULL, 'l'},
     {"quiet",           no_argument,        NULL, 'q'},
-    {"discreps",        no_argument,        NULL, 'c'},
+    {"discreps",        no_argument,        NULL, 'd'},
     {"ptrace",          no_argument,        NULL, 'p'},
     {"exec-all",        no_argument,        NULL, 'x'},
     {"print-regs",      no_argument,        NULL, 'r'},
@@ -924,7 +924,7 @@ Execution options:\n\
 \n\
 Logging options:\n\
     -l, --log-suffix        Add a suffix to the log and status file.\n\
-    -c, --discreps          Log disassembler discrepancies.\n\
+    -d, --discreps          Log disassembler discrepancies.\n\
 \n\
 Ptrace options (only available with -p option):\n\
     -t, --thumb             Use the thumb instruction set (only available on\n\
@@ -968,7 +968,7 @@ int main(int argc, char **argv)
     char *endptr;
     uint64_t opt_temp;
     int c;
-    while ((c = getopt_long(argc, argv, "hs:e:nl:qcpxrif:m:tzgVC",
+    while ((c = getopt_long(argc, argv, "hs:e:nl:qdpxrif:m:tzgVC",
                             long_options, NULL)) != -1) {
         switch (c) {
             case 'h':
@@ -1023,7 +1023,7 @@ int main(int argc, char **argv)
             case 'q':
                 quiet = true;
                 break;
-            case 'c':
+            case 'd':
                 log_discreps = true;
                 break;
             case 'p':
