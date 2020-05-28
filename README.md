@@ -153,6 +153,67 @@ Ptrace options (only available with -p option):
                             fuzzing.
 ```
 
+## More Usage Examples
+
+Fuzz the 16-bit part of T32 (Thumb):
+
+```
+$ ./fuzzer -e e7ff0000 -pt -f2
+```
+
+Fuzz the 32-bit part of T32 (using multiple processes):
+
+```
+$ ./armshaker.py -s e8000000 -pt -f2
+```
+
+Check if your (64-bit) Linux kernel induces undocumented [32-bit T32 SETEND instructions](https://github.com/torvalds/linux/commit/fc2266011accd5aeb8ebc335c381991f20e26e33):
+
+```
+$ sudo sh -c 'echo 1 > /proc/sys/abi/setend'  # Enable SETEND emulation
+$ ./fuzzer -s e800b650 -m ffff0008 -ptg -f1
+```
+
+Check if your QEMU release has [hidden VMUL instructions](https://lists.nongnu.org/archive/html/qemu-arm/2020-04/msg00168.html) (in A32/T32):
+
+```
+$ ./fuzzer -s f3200d10 -m 004ff0ef -pVzg -f2
+```
+
+Check if your QEMU release has [hidden VQDMULL instructions](https://github.com/qemu/qemu/commit/ab553ef74ee52c0889679d0bd0da084aaf938f5c) (in A32/T32):
+
+```
+$ ./fuzzer -s f3900d00 -m 007ff0af -pVzg -f2
+```
+
+Execute a defined instruction and see its effects (A64 example):
+
+```
+$ tools/as.sh 'mov x0, #0x1337'
+d28266e0
+$ ./fuzzer -s d28266e0 -i -pxr
+insn: 0xd28266e0, checked: 0, skipped: 0, filtered: 0, hidden: 0, ips: 27676236
+insn: d28266e0
+x0:     0000000000000000        0000000000001337
+x1:     0000000000000000        0000000000000000
+x2:     0000000000000000        0000000000000000
+...
+x29:    0000000000000000        0000000000000000
+x30:    0000000000000000        0000000000000000
+sp:     0000000000000000        0000000000000000
+pc:     000000555ba769f0        000000555ba769ec
+pstate: 0000000000000000        0000000000000000
+signal: 0
+```
+
+## Troubleshooting
+
+### The fuzzer detects millions of hidden instructions in A32. Is something wrong?
+
+It's possible that your particular processor executes undefined instructions with an unmatched condition code as NOPs, instead of generating an exception. This is an implementation defined behavior, as documented in section G1.16.1 of the [DDI0487E Armv8 Architecture Reference Manual](https://static.docs.arm.com/ddi0487/ea/DDI0487E_a_armv8_arm.pdf).
+
+This behavior can in some sense be bypassed by making sure the condition code is always matched, which is what the `-c` option does. See if adding that option reduces the number of reported hidden instructions.
+
 ## References
 
 armshaker was inspired by Christopher Domas's [sandsifter](https://github.com/xoreaxeaxeax/sandsifter) project and implemented as part of my master's thesis in computer science, where I used it to fuzz a variety of Armv8-A-based systems. No hidden instructions that could be attributed to hardware were found, but the fuzzing did reveal bugs in the QEMU emulator and the Linux kernel. See the `refs` directory for more information.
