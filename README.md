@@ -33,7 +33,7 @@ In case Python 3 is not available, `shell_frontend.sh` can be used instead for m
 
 ## Building
 
-armshaker is only supported on Armv8-A-based systems running Linux, but otherwise requires only a C compiler and Python 3 for the front-end.
+armshaker is made for Armv8-A-based systems running Linux, although it should be possible to run it on Armv7-A too. Other than Linux, it only requires a C compiler (GCC), the make tool and Python 3 for the front-end.
 
 The simplest way to compile the fuzzer is to run
 
