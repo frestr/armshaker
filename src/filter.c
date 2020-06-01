@@ -851,7 +851,8 @@ static const struct opcode thumb32_opcodes[] =
  * Without this filter, these instructions will often be marked as
  * hidden, generating a lot of false positives.
  */
-static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes, bool thumb16)
+static bool has_incorrect_sb_bits(uint32_t insn, const struct opcode *opcodes,
+                                  bool thumb16)
 {
     const struct opcode *curr_op;
     for (curr_op = opcodes; curr_op->disassembly; ++curr_op) {
@@ -906,7 +907,8 @@ static bool is_unpredictable_ldpsw(uint32_t insn)
 #define BITS(INSN,HI,LO) (((INSN) >> (LO)) & ((1 << (((HI) - (LO)) + 1)) - 1))
 
     // Is an LDPSW insn?
-    if ((insn & 0xfec00000) != 0x68c00000 && (insn & 0xffc00000) != 0x69400000) {
+    if ((insn & 0xfec00000) != 0x68c00000
+            && (insn & 0xffc00000) != 0x69400000) {
         return false;
     }
 

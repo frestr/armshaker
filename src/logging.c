@@ -134,7 +134,9 @@ int write_statusfile(char *filepath, search_status *status)
     return 0;
 }
 
-int write_logfile(char *filepath, execution_result *exec_result, bool write_regs, bool only_reg_changes, bool include_vector_regs)
+int write_logfile(char *filepath, execution_result *exec_result,
+                  bool write_regs, bool only_reg_changes,
+                  bool include_vector_regs)
 {
     FILE *log_fp = fopen(filepath, "a");
 
@@ -148,7 +150,8 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
 #ifdef __aarch64__
         for (uint32_t i = 0; i < UREG_COUNT; ++i) {
             if (only_reg_changes) {
-                if (exec_result->regs_before.regs[i] != exec_result->regs_after.regs[i])
+                if (exec_result->regs_before.regs[i]
+                        != exec_result->regs_after.regs[i])
                     fprintf(log_fp, ",x%" PRIu32 ":%llx-%llx",
                             i, exec_result->regs_before.regs[i],
                             exec_result->regs_after.regs[i]);
@@ -159,37 +162,50 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
         }
 
         if (only_reg_changes) {
-            if (exec_result->regs_before.sp != exec_result->regs_after.sp) {
+            if (exec_result->regs_before.sp
+                    != exec_result->regs_after.sp) {
                 fprintf(log_fp, ",sp:%llx-%llx",
-                        exec_result->regs_before.sp, exec_result->regs_after.sp);
+                        exec_result->regs_before.sp,
+                        exec_result->regs_after.sp);
             }
-            if (exec_result->regs_before.pc != exec_result->regs_after.pc) {
+            if (exec_result->regs_before.pc
+                    != exec_result->regs_after.pc) {
                 fprintf(log_fp, ",pc:%llx-%llx",
-                        exec_result->regs_before.pc, exec_result->regs_after.pc);
+                        exec_result->regs_before.pc,
+                        exec_result->regs_after.pc);
             }
-            if (exec_result->regs_before.pstate != exec_result->regs_after.pstate) {
+            if (exec_result->regs_before.pstate
+                    != exec_result->regs_after.pstate) {
                 fprintf(log_fp, ",pstate:%llx-%llx",
-                        exec_result->regs_before.pstate, exec_result->regs_after.pstate);
+                        exec_result->regs_before.pstate,
+                        exec_result->regs_after.pstate);
             }
         } else {
             fprintf(log_fp, ",%llx-%llx,%llx-%llx,%llx-%llx",
-                            exec_result->regs_before.sp, exec_result->regs_after.sp,
-                            exec_result->regs_before.pc, exec_result->regs_after.pc,
-                            exec_result->regs_before.pstate, exec_result->regs_after.pstate);
+                            exec_result->regs_before.sp,
+                            exec_result->regs_after.sp,
+                            exec_result->regs_before.pc,
+                            exec_result->regs_after.pc,
+                            exec_result->regs_before.pstate,
+                            exec_result->regs_after.pstate);
         }
 
         if (include_vector_regs) {
             for (uint32_t i = 0; i < VFPREG_COUNT; ++i) {
-                uint64_t upper_bef = exec_result->vfp_regs_before.vregs[i] >> 64;
-                uint64_t lower_bef = (uint64_t)exec_result->vfp_regs_before.vregs[i];
-                uint64_t upper_aft = exec_result->vfp_regs_after.vregs[i] >> 64;
-                uint64_t lower_aft = (uint64_t)exec_result->vfp_regs_after.vregs[i];
+                uint64_t upper_bef =
+                    exec_result->vfp_regs_before.vregs[i] >> 64;
+                uint64_t lower_bef =
+                    (uint64_t)exec_result->vfp_regs_before.vregs[i];
+                uint64_t upper_aft =
+                    exec_result->vfp_regs_after.vregs[i] >> 64;
+                uint64_t lower_aft =
+                    (uint64_t)exec_result->vfp_regs_after.vregs[i];
 
                 if (only_reg_changes) {
                     if (exec_result->vfp_regs_before.vregs[i]
                             != exec_result->vfp_regs_after.vregs[i]) {
-                        fprintf(log_fp, ",v%" PRIu32 ":%016" PRIx64 "%016" PRIx64 "-"
-                                "%016" PRIx64 "%016" PRIx64 "",
+                        fprintf(log_fp, ",v%" PRIu32 ":%016" PRIx64
+                                "%016" PRIx64 "-%016" PRIx64 "%016" PRIx64 "",
                                 i, upper_bef, lower_bef, upper_aft, lower_aft);
                     }
                 } else {
@@ -229,7 +245,8 @@ int write_logfile(char *filepath, execution_result *exec_result, bool write_regs
                                 exec_result->regs_before.uregs[i],
                                 exec_result->regs_after.uregs[i]);
                 } else {
-                    fprintf(log_fp, ",%lx-%lx", exec_result->regs_before.uregs[i],
+                    fprintf(log_fp, ",%lx-%lx",
+                            exec_result->regs_before.uregs[i],
                             exec_result->regs_after.uregs[i]);
                 }
             }
