@@ -217,3 +217,28 @@ This behavior can in some sense be bypassed by making sure the condition code is
 ## References
 
 armshaker was inspired by Christopher Domas's [sandsifter](https://github.com/xoreaxeaxeax/sandsifter) project and implemented as part of my master's thesis in computer science, where I used it to fuzz a variety of Armv8-A-based systems. No hidden instructions that could be attributed to hardware were found, but the fuzzing did reveal bugs in the QEMU emulator and the Linux kernel. See the `refs` directory for more information.
+
+### Citing
+
+The main findings of my thesis were published as an article presented at the HASP 2020 workshop, under the title [Uncovering Hidden Instructions in Armv8-A Implementations](https://dl.acm.org/doi/abs/10.1145/3458903.3458906) ([preprint version](https://folk.ntnu.no/rakeshk/pubs/armshaker_HASP20.pdf)).
+
+If you would like to cite this work, you can use the following BibTex entry:
+
+```
+@inproceedings{10.1145/3458903.3458906,
+  author = {Strupe, Fredrik and Kumar, Rakesh},
+  title = {Uncovering Hidden Instructions in Armv8-A Implementations},
+  year = {2021},
+  isbn = {9781450388986},
+  publisher = {Association for Computing Machinery},
+  address = {New York, NY, USA},
+  url = {https://doi.org/10.1145/3458903.3458906},
+  doi = {10.1145/3458903.3458906},
+  booktitle = {Hardware and Architectural Support for Security and Privacy},
+  articleno = {3},
+  numpages = {9},
+  keywords = {undocumented instructions, Armv8-A, hidden instructions, hardware security},
+  location = {Virtual, Greece},
+  series = {HASP '20}
+}
+```
